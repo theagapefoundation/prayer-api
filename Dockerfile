@@ -10,4 +10,4 @@ RUN yarn build
 
 EXPOSE ${PORT}
 
-CMD ["npm", "start:prod"]
+CMD ["yarn", "start:prod"]
