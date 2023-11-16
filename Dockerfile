@@ -1,13 +1,23 @@
-FROM node:lts-alpine
+FROM node:lts-alpine as build
 
-WORKDIR /app
+WORKDIR /build
 
 COPY . .
 
-RUN yarn --proudction
+RUN yarn install
 
 RUN yarn build
 
+FROM node:lts-alpine as prod
+
+WORKDIR /app
+
+COPY package.json package.json
+COPY yarn.lock yarn.lock
+RUN yarn install --prod
+
+COPY --from=build /build/dist ./dist
+
 EXPOSE ${PORT}
 
-CMD ["yarn", "start:prod"]
+CMD ["node", "./dist/src/main.js"]
