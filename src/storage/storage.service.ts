@@ -17,8 +17,4 @@ export class StorageService extends Storage {
   get publicBucket() {
     return this.bucket(this.configService.getOrThrow('BUCKET_NAME'));
   }
-
-  get url() {
-    return 'https://storage.googleapis.com/prayer-public_uploads-prod-asia/';
-  }
 }
