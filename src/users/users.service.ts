@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { UpdateObject, sql } from 'kysely';
-import { DB } from 'kysely-codegen';
+import { DB } from 'prisma/generated/types';
 import { KyselyService } from 'src/kysely/kysely.service';
 import { StorageService } from 'src/storage/storage.service';
 

@@ -1,10 +1,10 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { InsertObject, sql } from 'kysely';
-import { DB } from 'kysely-codegen';
 import { KyselyService } from 'src/kysely/kysely.service';
 import { jsonObjectFrom } from 'kysely/helpers/postgres';
 import { StorageService } from 'src/storage/storage.service';
 import { TooManyPrays } from './prayers.error';
+import { DB } from 'prisma/generated/types';
 
 @Injectable()
 export class PrayersService {
