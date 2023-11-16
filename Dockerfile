@@ -1,13 +1,13 @@
-FROM node:lts
+FROM node:lts-alpine
 
 WORKDIR /app
 
 COPY . .
 
-RUN npm install
+RUN yarn --proudction
 
-RUN npm install pm2 -g
+RUN yarn build
 
-RUN npm run build
+EXPOSE ${PORT}
 
-CMD ["pm2", "start", "dist/main.js"]
+CMD ["npm", "start:prod"]
