@@ -15,6 +15,7 @@ import { AuthGuard } from 'src/auth/auth.guard';
 export class UploadsController {
   constructor(private appService: UploadsService) {}
 
+  @UseGuards(AuthGuard)
   @Get()
   async getUploadUrl(
     @User() user: UserEntity,
