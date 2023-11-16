@@ -122,8 +122,8 @@ export class GroupController {
     @Body() { userId }: AcceptRequestGroupDto,
     @User() user: UserEntity,
   ) {
-    const { admin_id } = await this.appService.fetchGroup(groupId);
-    if (admin_id !== user.sub) {
+    const data = await this.appService.fetchGroup(groupId);
+    if (data?.admin_id !== user.sub) {
       throw new HttpException(
         'Only admin can promote user to moderator',
         HttpStatus.FORBIDDEN,

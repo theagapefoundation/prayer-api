@@ -58,15 +58,14 @@ export class PrayersService {
     if (data == null) {
       return data;
     }
+    if (data.user?.profile) {
+      data.user.profile = this.storageService.publicBucket
+        .file(data.user.profile)
+        .publicUrl();
+    }
     return {
       ...data,
-      prayers_count: parseInt(data.prayers, 10),
-      user: {
-        ...data.user,
-        profile: data.user.profile
-          ? this.storageService.publicBucket.file(data.user.profile).publicUrl()
-          : null,
-      },
+      prayers_count: parseInt(data?.prayers ?? '0', 10),
     };
   }
 
@@ -150,12 +149,12 @@ export class PrayersService {
       .executeTakeFirst();
     return {
       ...data,
-      media: data.media
+      media: data?.media
         ? this.storageService.publicBucket.file(data.media).publicUrl()
         : null,
-      prays_count: parseInt(data.prays_count, 10),
-      user_id: data.anon && data.user_id !== userId ? null : data.user_id,
-      user: data.anon && data.user_id !== userId ? null : data.user,
+      prays_count: parseInt(data?.prays_count ?? '0', 10),
+      user_id: data?.anon && data.user_id !== userId ? null : data?.user_id,
+      user: data?.anon && data.user_id !== userId ? null : data?.user,
     };
   }
 
@@ -178,7 +177,7 @@ export class PrayersService {
           .select('prayer_prays.created_at')
           .limit(1),
       )
-      .$if(!!cursor, (eb) => eb.where('prayers.id', '=', cursor))
+      .$if(!!cursor, (eb) => eb.where('prayers.id', '=', cursor!))
       .limit(11)
       .execute();
     return data.map(({ id }) => id);
@@ -206,7 +205,7 @@ export class PrayersService {
             eb
               .selectFrom('group_members')
               .whereRef('group_members.group_id', '=', 'groups.id')
-              .where('group_members.user_id', '=', requestingUserId)
+              .where('group_members.user_id', '=', requestingUserId!)
               .select('group_members.accepted_at')
               .as('accepted_at'),
           ),
@@ -222,13 +221,13 @@ export class PrayersService {
     }
     const data = await this.dbService
       .selectFrom('prayers')
-      .$if(!!groupId, (eb) => eb.where('group_id', '=', groupId))
-      .$if(!!userId, (eb) => eb.where('user_id', '=', userId))
-      .$if(!!corporateId, (eb) => eb.where('corporate_id', '=', corporateId))
+      .$if(!!groupId, (eb) => eb.where('group_id', '=', groupId!))
+      .$if(!!userId, (eb) => eb.where('user_id', '=', userId!))
+      .$if(!!corporateId, (eb) => eb.where('corporate_id', '=', corporateId!))
       .$if(userId !== requestingUserId || requestingUserId == null, (eb) =>
         eb.where('anon', '=', false),
       )
-      .$if(!!cursor, (eb) => eb.where('id', '=', cursor))
+      .$if(!!cursor, (eb) => eb.where('id', '=', cursor!))
       .orderBy('prayers.created_at desc')
       .select(['id'])
       .limit(11)
@@ -246,7 +245,7 @@ export class PrayersService {
     return this.dbService
       .selectFrom('prayer_prays')
       .where('prayer_prays.prayer_id', '=', prayerId)
-      .$if(!!cursor, (eb) => eb.where('prayer_prays.id', '=', cursor))
+      .$if(!!cursor, (eb) => eb.where('prayer_prays.id', '=', cursor!))
       .leftJoin('users', 'users.uid', 'prayer_prays.user_id')
       .orderBy('prayer_prays.created_at desc')
       .select([
@@ -265,7 +264,7 @@ export class PrayersService {
     userId,
     cursor,
   }: {
-    userId?: string;
+    userId: string;
     cursor?: string;
   }) {
     return this.dbService
@@ -276,7 +275,7 @@ export class PrayersService {
           'in',
           eb
             .selectFrom('group_members')
-            .where('group_members.user_id', '=', userId)
+            .where('group_members.user_id', '=', userId!)
             .distinct()
             .select('group_members.group_id'),
         ),
@@ -290,7 +289,7 @@ export class PrayersService {
           .select('prayer_prays.created_at')
           .limit(1),
       )
-      .$if(!!cursor, (eb) => eb.where('prayers.id', '=', cursor))
+      .$if(!!cursor, (eb) => eb.where('prayers.id', '=', cursor!))
       .select(['id'])
       .limit(11)
       .execute();
@@ -313,7 +312,7 @@ export class PrayersService {
           eb
             .selectFrom('group_members')
             .whereRef('group_members.group_id', '=', 'groups.id')
-            .where('group_members.user_id', '=', userId)
+            .where('group_members.user_id', '=', userId!)
             .select('group_members.accepted_at')
             .as('accepted_at'),
         ),
@@ -329,7 +328,7 @@ export class PrayersService {
     const data = await this.dbService
       .selectFrom('corporate_prayers')
       .where('corporate_prayers.group_id', '=', groupId)
-      .$if(!!cursor, ({ where }) => where('id', '=', cursor))
+      .$if(!!cursor, ({ where }) => where('id', '=', cursor!))
       .orderBy('corporate_prayers.ended_at desc')
       .orderBy('corporate_prayers.created_at desc')
       .select(['id'])

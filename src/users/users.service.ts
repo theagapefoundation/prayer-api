@@ -33,7 +33,7 @@ export class UsersService {
       .executeTakeFirst();
   }
 
-  async searchUsers({ query, cursor }: { query: string; cursor?: string }) {
+  async searchUsers({ query, cursor }: { query?: string; cursor?: string }) {
     const data = await this.dbService
       .selectFrom('users')
       .select(['profile', 'uid', 'username', 'name'])
@@ -46,14 +46,14 @@ export class UsersService {
         ),
       )
       .orderBy('created_at desc')
-      .$if(!!cursor, (qb) => qb.where('uid', '=', cursor))
+      .$if(!!cursor, (qb) => qb.where('uid', '=', cursor!))
       .limit(21)
       .execute();
     data.forEach((d) => {
       const { profile } = this.fetchPresignedUrl({
         profile: d.profile,
       });
-      (d.profile as string) = profile;
+      d.profile = profile;
     });
     return data;
   }
@@ -69,15 +69,15 @@ export class UsersService {
   }) {
     const data = await this.dbService
       .selectFrom('users')
-      .$if(!!userId, (eb) => eb.where('uid', '=', userId))
-      .$if(!!username, (eb) => eb.where('username', '=', username))
+      .$if(!!userId, (eb) => eb.where('uid', '=', userId!))
+      .$if(!!username, (eb) => eb.where('username', '=', username!))
       .selectAll()
       .$if(!!requestUserId && requestUserId !== userId, (qb) =>
         qb.select((eb) =>
           eb
             .selectFrom('user_follows')
             .whereRef('user_follows.follower_id', '=', 'users.uid')
-            .where('user_follows.following_id', '=', requestUserId)
+            .where('user_follows.following_id', '=', requestUserId!)
             .select('user_follows.created_at')
             .as('followed_at'),
         ),
@@ -109,8 +109,8 @@ export class UsersService {
       ...data,
       profile,
       banner,
-      followers_count: parseInt(data.followers_count, 10),
-      followings_count: parseInt(data.followings_count, 10),
+      followers_count: parseInt(data.followers_count ?? '10', 10),
+      followings_count: parseInt(data.followings_count ?? '10', 10),
     };
   }
 
@@ -206,7 +206,7 @@ export class UsersService {
     bio,
     profile,
     banner,
-  }: UpdateObject<DB, 'users'>) {
+  }: Omit<UpdateObject<DB, 'users'>, 'uid'> & { uid: string }) {
     const data = await this.dbService
       .selectFrom('users')
       .where('uid', '=', uid)

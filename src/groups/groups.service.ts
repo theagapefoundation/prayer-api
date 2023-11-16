@@ -56,17 +56,17 @@ export class GroupsService {
         eb.select(({ selectFrom }) => [
           selectFrom('group_members')
             .whereRef('group_members.group_id', '=', 'groups.id')
-            .where('group_members.user_id', '=', userId)
+            .where('group_members.user_id', '=', userId!)
             .select('group_members.created_at')
             .as('joined_at'),
           selectFrom('group_members')
             .whereRef('group_members.group_id', '=', 'groups.id')
-            .where('group_members.user_id', '=', userId)
+            .where('group_members.user_id', '=', userId!)
             .select('group_members.accepted_at')
             .as('accepted_at'),
           selectFrom('group_members')
             .whereRef('group_members.group_id', '=', 'groups.id')
-            .where('group_members.user_id', '=', userId)
+            .where('group_members.user_id', '=', userId!)
             .select('group_members.moderator')
             .as('moderator'),
         ]),
@@ -80,16 +80,15 @@ export class GroupsService {
         .file(data.banner)
         .publicUrl();
     }
+    if (data.user?.profile) {
+      data.user.profile = this.storageService.publicBucket
+        .file(data.user.profile)
+        .publicUrl();
+    }
     return {
       ...data,
-      members_count: parseInt(data.members_count, 10),
-      prayers_count: parseInt(data.prayers_count, 10),
-      user: {
-        ...data.user,
-        profile: data.user.profile
-          ? this.storageService.publicBucket.file(data.user.profile).publicUrl()
-          : null,
-      },
+      members_count: parseInt(data.members_count ?? '0', 10),
+      prayers_count: parseInt(data.prayers_count ?? '0', 10),
     };
   }
 
@@ -112,13 +111,13 @@ export class GroupsService {
           ]),
         ),
       )
-      .$if(!!cursor, (eb) => eb.where('id', '=', cursor))
+      .$if(!!cursor, (eb) => eb.where('id', '=', cursor!))
       .$if(!!userId, (eb) =>
         eb.where(({ exists }) =>
           exists(({ selectFrom }) =>
             selectFrom('group_members')
               .whereRef('group_members.group_id', '=', 'groups.id')
-              .where('group_members.user_id', '=', userId),
+              .where('group_members.user_id', '=', userId!),
           ),
         ),
       )
@@ -269,7 +268,7 @@ export class GroupsService {
     const members = await this.dbService
       .selectFrom('group_members')
       .where('group_members.group_id', '=', groupId)
-      .$if(!!cursor, (qb) => qb.where('id', '=', cursor))
+      .$if(!!cursor, (qb) => qb.where('id', '=', cursor!))
       .$if(moderator != null, (qb) =>
         qb.where('moderator', moderator ? 'is not' : 'is', null),
       )
@@ -351,7 +350,7 @@ export class GroupsService {
       .where('user_id', '=', userId)
       .select('moderator')
       .executeTakeFirst();
-    return data.moderator !== null;
+    return data != null && data.moderator != null;
   }
 
   async handleRequest({

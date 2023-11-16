@@ -14,6 +14,6 @@ async function bootstrap() {
   app.useGlobalInterceptors(new TimeoutInterceptor());
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
 
-  await app.listen(parseInt(process.env.PORT, 10) || 3000);
+  await app.listen(parseInt(process.env.PORT as string, 10) || 3000);
 }
 bootstrap();

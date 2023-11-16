@@ -154,7 +154,7 @@ export class PrayersController {
     @Query('cursor') cursor?: string,
   ) {
     const data = await this.appService.fetchHomeFeed({
-      userId: user.sub,
+      userId: user?.sub,
       cursor,
     });
     const newCursor = data.length < 11 ? null : data.pop();

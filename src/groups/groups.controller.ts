@@ -73,8 +73,8 @@ export class GroupsController {
     @Body() body: UpdateGroupDto,
     @Param('groupId') groupId: string,
   ) {
-    const { admin_id } = await this.appService.fetchGroup(groupId);
-    if (admin_id !== user.sub) {
+    const data = await this.appService.fetchGroup(groupId);
+    if (data?.admin_id !== user.sub) {
       throw new HttpException(
         'Only admin can make an update',
         HttpStatus.FORBIDDEN,
@@ -97,8 +97,8 @@ export class GroupsController {
     @User() user: UserEntity,
     @Param('groupId') groupId: string,
   ) {
-    const { admin_id } = await this.appService.fetchGroup(groupId);
-    if (admin_id !== user.sub) {
+    const data = await this.appService.fetchGroup(groupId);
+    if (data?.admin_id !== user.sub) {
       throw new HttpException(
         'Only admin can make an update',
         HttpStatus.FORBIDDEN,

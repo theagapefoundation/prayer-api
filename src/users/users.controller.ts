@@ -39,7 +39,7 @@ export class UsersController {
   @UseInterceptors(ResponseInterceptor)
   @Get(':id')
   async fetchUser(@Param('id') userId: string, @User() user?: UserEntity) {
-    return this.appService.fetchUser({ userId, requestUserId: user.sub });
+    return this.appService.fetchUser({ userId, requestUserId: user?.sub });
   }
 
   @UseGuards(AuthGuard)
@@ -113,9 +113,10 @@ export class UsersController {
     @Param('username') username: string,
     @User() user?: UserEntity,
   ) {
-    return this.appService.fetchUser({ username, requestUserId: user.sub });
+    return this.appService.fetchUser({ username, requestUserId: user?.sub });
   }
 
+  @UseGuards(AuthGuard)
   @Post(':userId/follows')
   async followUser(
     @User() user: UserEntity,

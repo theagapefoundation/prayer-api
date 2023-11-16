@@ -11,9 +11,9 @@ export class CreateGroupDto {
   @MaxLength(30)
   name: string;
 
-  @IsOptional()
+  @IsNotEmpty()
   @MaxLength(300)
-  description?: string;
+  description: string;
 
   @IsIn(['open', 'private', 'restricted'])
   membershipType: 'open' | 'private' | 'restricted';
