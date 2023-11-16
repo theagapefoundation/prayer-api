@@ -267,7 +267,7 @@ export class PrayersService {
     userId: string;
     cursor?: string;
   }) {
-    return this.dbService
+    const data = await this.dbService
       .selectFrom('prayers')
       .where((eb) =>
         eb(
@@ -293,6 +293,7 @@ export class PrayersService {
       .select(['id'])
       .limit(11)
       .execute();
+    return data.map(({ id }) => id);
   }
 
   async fetchGroupCorporatePrayers({
