@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpException,
   HttpStatus,
@@ -17,10 +18,14 @@ import { CreateCorporatePrayerDto, CreatePrayerDto } from './prayers.interface';
 import { ResponseInterceptor } from 'src/response.interceptor';
 import { TooManyPrays } from './prayers.error';
 import moment from 'moment';
+import { StorageService } from 'src/storage/storage.service';
 
 @Controller('prayers')
 export class PrayersController {
-  constructor(private appService: PrayersService) {}
+  constructor(
+    private appService: PrayersService,
+    private storageService: StorageService,
+  ) {}
 
   @Get('by/user/:userId')
   async fetchPrayersByUser(
@@ -84,6 +89,23 @@ export class PrayersController {
     return this.appService.fetchCorporatePrayer(prayerId);
   }
 
+  @UseGuards(AuthGuard)
+  @UseInterceptors(ResponseInterceptor)
+  @Delete('corporate/:prayerId')
+  async deleteCorporatePrayer(
+    @Param('prayerId') prayerId: string,
+    @User() user: UserEntity,
+  ) {
+    const data = await this.appService.fetchCorporatePrayer(prayerId);
+    if (data?.user_id !== user.sub) {
+      throw new HttpException(
+        'Only owner can delete the post',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    return this.appService.deleteCorporatePrayer(prayerId);
+  }
+
   @Get('corporate/:prayerId/prayers')
   async fetchPrayersFromCorporatePrayer(
     @Param('prayerId') prayerId: string,
@@ -129,6 +151,30 @@ export class PrayersController {
     @User() user?: UserEntity,
   ) {
     return this.appService.fetchPrayer({ prayerId, userId: user?.sub });
+  }
+
+  @UseGuards(AuthGuard)
+  @Delete(':prayerId')
+  @UseInterceptors(ResponseInterceptor)
+  async deletePrayer(
+    @Param('prayerId') prayerId: string,
+    @User() user: UserEntity,
+  ) {
+    const data = await this.appService.fetchPrayer({
+      prayerId,
+      userId: user.sub,
+    });
+    if (data.user_id !== user.sub) {
+      throw new HttpException(
+        'Only owner can delete the post',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    if (data.media) {
+      this.storageService.removeFile(data.media);
+    }
+    await this.appService.deletePrayer(prayerId);
+    return 'success';
   }
 
   @Get(':prayerId/pray')

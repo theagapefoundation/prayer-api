@@ -59,9 +59,7 @@ export class PrayersService {
       return data;
     }
     if (data.user?.profile) {
-      data.user.profile = this.storageService.publicBucket
-        .file(data.user.profile)
-        .publicUrl();
+      data.user.profile = this.storageService.getPublicUrl(data.user.profile);
     }
     return {
       ...data,
@@ -336,6 +334,33 @@ export class PrayersService {
       .limit(6)
       .execute();
     return data.map(({ id }) => id);
+  }
+
+  async deletePrayer(prayerId: string) {
+    await Promise.all([
+      this.dbService
+        .deleteFrom('prayers')
+        .where('prayers.id', '=', prayerId)
+        .executeTakeFirst(),
+      this.dbService
+        .deleteFrom('prayer_prays')
+        .where('prayer_prays.prayer_id', '=', prayerId)
+        .executeTakeFirst(),
+    ]);
+  }
+
+  async deleteCorporatePrayer(prayerId: string) {
+    await Promise.all([
+      this.dbService
+        .deleteFrom('corporate_prayers')
+        .where('corporate_prayers.id', '=', prayerId)
+        .executeTakeFirst(),
+      this.dbService
+        .updateTable('prayers')
+        .where('prayers.corporate_id', '=', prayerId)
+        .set({ corporate_id: null })
+        .executeTakeFirst(),
+    ]);
   }
 
   async createPrayer(data: InsertObject<DB, 'prayers'>) {
