@@ -17,4 +17,12 @@ export class StorageService extends Storage {
   get publicBucket() {
     return this.bucket(this.configService.getOrThrow('BUCKET_NAME'));
   }
+
+  getPublicUrl(path: string) {
+    return this.publicBucket.file(path).publicUrl();
+  }
+
+  async removeFile(path: string) {
+    return this.publicBucket.file(path).delete({ ignoreNotFound: true });
+  }
 }

@@ -273,10 +273,10 @@ export class UsersService {
   fetchPresignedUrl(data: { profile?: string | null; banner?: string | null }) {
     return {
       profile: data.profile
-        ? this.storageService.publicBucket.file(data.profile).publicUrl()
+        ? this.storageService.getPublicUrl(data.profile)
         : null,
       banner: data.banner
-        ? this.storageService.publicBucket.file(data.banner).publicUrl()
+        ? this.storageService.getPublicUrl(data.banner)
         : null,
     };
   }

@@ -76,9 +76,7 @@ export class GroupsService {
       return data;
     }
     if (data.banner != null) {
-      (data.banner as string) = this.storageService.publicBucket
-        .file(data.banner)
-        .publicUrl();
+      (data.banner as string) = this.storageService.getPublicUrl(data.banner);
     }
     if (data.user?.profile) {
       data.user.profile = this.storageService.publicBucket
@@ -295,9 +293,7 @@ export class GroupsService {
       .execute();
     members.forEach((member) => {
       if (member.profile) {
-        member.profile = this.storageService.publicBucket
-          .file(member.profile)
-          .publicUrl();
+        member.profile = this.storageService.getPublicUrl(member.profile);
       }
     });
     return members;
