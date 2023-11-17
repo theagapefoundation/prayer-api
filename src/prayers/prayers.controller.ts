@@ -17,7 +17,7 @@ import { User, UserEntity } from 'src/auth/auth.decorator';
 import { CreateCorporatePrayerDto, CreatePrayerDto } from './prayers.interface';
 import { ResponseInterceptor } from 'src/response.interceptor';
 import { TooManyPrays } from './prayers.error';
-import moment from 'moment';
+import * as moment from 'moment';
 import { StorageService } from 'src/storage/storage.service';
 
 @Controller('prayers')
