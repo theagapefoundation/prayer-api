@@ -42,11 +42,13 @@ export type groups = {
   admin_id: string;
   banner: string | null;
   membership_type: membership_type;
+  updated_at: Generated<Timestamp>;
   created_at: Generated<Timestamp>;
 };
 export type prayer_prays = {
   id: Generated<number>;
   user_id: string;
+  value: string | null;
   created_at: Timestamp;
   prayer_id: string;
 };
