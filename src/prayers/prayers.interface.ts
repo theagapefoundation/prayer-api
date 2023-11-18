@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsUUID,
+  MaxLength,
 } from 'class-validator';
 
 export class CreateCorporatePrayerDto {
@@ -44,4 +45,10 @@ export class CreatePrayerDto {
 
   @IsOptional()
   media?: string;
+}
+
+export class CreatePrayerPrayDto {
+  @IsOptional()
+  @MaxLength(300)
+  value?: string;
 }

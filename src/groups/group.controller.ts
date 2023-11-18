@@ -15,6 +15,11 @@ import { ResponseInterceptor } from 'src/response.interceptor';
 import { User, UserEntity } from 'src/auth/auth.decorator';
 import { AuthGuard } from 'src/auth/auth.guard';
 import { AcceptRequestGroupDto, JoinGroupDto } from './groups.interface';
+import { NoResultError } from 'kysely';
+import {
+  OperationNotAllowedError,
+  TargetNotFoundError,
+} from 'src/errors/common.error';
 
 @Controller('groups/:groupId')
 export class GroupController {
@@ -34,15 +39,29 @@ export class GroupController {
     @Param('groupId') groupId: string,
     @Body() { value }: JoinGroupDto,
   ) {
-    if (value === 'true') {
-      const date = await this.appService.joinGroup({
-        groupId,
-        userId: user.sub,
-      });
-      return date;
+    try {
+      if (value === 'true') {
+        const { accepted_at } = await this.appService.joinGroup({
+          groupId,
+          userId: user.sub,
+        });
+        return accepted_at;
+      }
+      const data = await this.appService.fetchGroup(groupId);
+      if (data == null) {
+        throw new TargetNotFoundError('Unable to find the group to join');
+      }
+      if (data.admin_id === user.sub) {
+        throw new OperationNotAllowedError('Admin cannot leave the group');
+      }
+      await this.appService.leaveGroup({ groupId, userId: user.sub });
+      return 'success';
+    } catch (e) {
+      if (e instanceof NoResultError) {
+        throw new TargetNotFoundError('Unable to find the group to join');
+      }
+      throw e;
     }
-    await this.appService.leaveGroup({ groupId, userId: user.sub });
-    return 'success';
   }
 
   @Get('moderators')

@@ -5,10 +5,11 @@ import { ConfigModule } from '@nestjs/config';
 import { StorageModule } from 'src/storage/storage.module';
 import { PrayersController } from './prayers.controller';
 import { PrayersService } from './prayers.service';
+import { GroupsService } from 'src/groups/groups.service';
 
 @Module({
   imports: [KyselyModule, AuthModule, StorageModule, ConfigModule],
   controllers: [PrayersController],
-  providers: [PrayersService],
+  providers: [PrayersService, GroupsService],
 })
 export class PrayersModule {}

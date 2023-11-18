@@ -1,9 +1,8 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InsertObject, sql } from 'kysely';
 import { KyselyService } from 'src/kysely/kysely.service';
 import { jsonObjectFrom } from 'kysely/helpers/postgres';
 import { StorageService } from 'src/storage/storage.service';
-import { TooManyPrays } from './prayers.error';
 import { DB } from 'prisma/generated/types';
 
 @Injectable()
@@ -141,7 +140,12 @@ export class PrayersService {
         jsonObjectFrom(
           selectFrom('corporate_prayers')
             .whereRef('corporate_prayers.id', '=', 'prayers.corporate_id')
-            .select(['corporate_prayers.id', 'corporate_prayers.title']),
+            .select([
+              'corporate_prayers.id',
+              'corporate_prayers.title',
+              'corporate_prayers.user_id',
+              'corporate_prayers.group_id',
+            ]),
         ).as('corporate'),
       )
       .executeTakeFirst();
@@ -194,36 +198,14 @@ export class PrayersService {
     corporateId?: string;
     cursor?: string;
   }) {
-    if (groupId != null) {
-      const { membership_type, accepted_at } = await this.dbService
-        .selectFrom('groups')
-        .where('groups.id', '=', groupId)
-        .$if(!!userId, (qb) =>
-          qb.select((eb) =>
-            eb
-              .selectFrom('group_members')
-              .whereRef('group_members.group_id', '=', 'groups.id')
-              .where('group_members.user_id', '=', requestingUserId!)
-              .select('group_members.accepted_at')
-              .as('accepted_at'),
-          ),
-        )
-        .select(['groups.membership_type'])
-        .executeTakeFirstOrThrow();
-      if (membership_type === 'private' && accepted_at == null) {
-        throw new HttpException(
-          'Only accepted members can see the private',
-          HttpStatus.FORBIDDEN,
-        );
-      }
-    }
     const data = await this.dbService
       .selectFrom('prayers')
       .$if(!!groupId, (eb) => eb.where('group_id', '=', groupId!))
       .$if(!!userId, (eb) => eb.where('user_id', '=', userId!))
       .$if(!!corporateId, (eb) => eb.where('corporate_id', '=', corporateId!))
-      .$if(userId !== requestingUserId || requestingUserId == null, (eb) =>
-        eb.where('anon', '=', false),
+      .$if(
+        !!userId && (userId !== requestingUserId || requestingUserId == null),
+        (eb) => eb.where('anon', '=', false),
       )
       .$if(!!cursor, (eb) => eb.where('id', '=', cursor!))
       .orderBy('prayers.created_at desc')
@@ -249,6 +231,7 @@ export class PrayersService {
       .select([
         'prayer_prays.id',
         'prayer_prays.created_at',
+        'prayer_prays.value',
         'users.name',
         'users.uid',
         'users.profile',
@@ -296,38 +279,35 @@ export class PrayersService {
 
   async fetchGroupCorporatePrayers({
     groupId,
-    userId,
     cursor,
+    offset,
   }: {
     groupId: string;
-    userId?: string;
     cursor?: string;
+    offset?: number;
   }) {
-    const { membership_type, accepted_at } = await this.dbService
-      .selectFrom('groups')
-      .where('groups.id', '=', groupId)
-      .$if(!!userId, (qb) =>
-        qb.select((eb) =>
-          eb
-            .selectFrom('group_members')
-            .whereRef('group_members.group_id', '=', 'groups.id')
-            .where('group_members.user_id', '=', userId!)
-            .select('group_members.accepted_at')
-            .as('accepted_at'),
-        ),
-      )
-      .select(['groups.membership_type'])
-      .executeTakeFirstOrThrow();
-    if (membership_type === 'private' && accepted_at == null) {
-      throw new HttpException(
-        'Only accepted members can see the private',
-        HttpStatus.FORBIDDEN,
-      );
-    }
     const data = await this.dbService
       .selectFrom('corporate_prayers')
       .where('corporate_prayers.group_id', '=', groupId)
       .$if(!!cursor, ({ where }) => where('id', '=', cursor!))
+      .$if(!!offset, (qb) =>
+        qb.orderBy((eb) =>
+          eb
+            .case()
+            .when('corporate_prayers.ended_at', 'is', null)
+            .then(sql<number>`0`)
+            .when(
+              sql`corporate_prayers.ended_at >= (NOW() AT TIME ZONE 'UTC' AT TIME ZONE ${offset})`,
+            )
+            .then(
+              sql<number>`ABS(EXTRACT(EPOCH FROM (corporate_prayers.ended_at - (NOW() AT TIME ZONE 'UTC' AT TIME ZONE ${offset}))))`,
+            )
+            .else(
+              sql<number>`10000000000 + ABS(EXTRACT(EPOCH FROM (corporate_prayers.ended_at - (NOW() AT TIME ZONE 'UTC' AT TIME ZONE ${offset}))))`,
+            )
+            .end(),
+        ),
+      )
       .orderBy('corporate_prayers.ended_at desc')
       .orderBy('corporate_prayers.created_at desc')
       .select(['id'])
@@ -337,94 +317,166 @@ export class PrayersService {
   }
 
   async deletePrayer(prayerId: string) {
-    await Promise.all([
-      this.dbService
+    await this.dbService.transaction().execute(async (trx) => {
+      await trx
         .deleteFrom('prayers')
         .where('prayers.id', '=', prayerId)
-        .executeTakeFirst(),
-      this.dbService
+        .executeTakeFirst();
+
+      await trx
         .deleteFrom('prayer_prays')
         .where('prayer_prays.prayer_id', '=', prayerId)
-        .executeTakeFirst(),
-    ]);
+        .executeTakeFirst();
+    });
   }
 
   async deleteCorporatePrayer(prayerId: string) {
-    await Promise.all([
-      this.dbService
+    await this.dbService.transaction().execute(async (trx) => {
+      await trx
         .deleteFrom('corporate_prayers')
         .where('corporate_prayers.id', '=', prayerId)
-        .executeTakeFirst(),
-      this.dbService
+        .executeTakeFirst();
+      await trx
         .updateTable('prayers')
         .where('prayers.corporate_id', '=', prayerId)
         .set({ corporate_id: null })
-        .executeTakeFirst(),
-    ]);
+        .executeTakeFirst();
+    });
   }
 
-  async createPrayer(data: InsertObject<DB, 'prayers'>) {
-    if (data.group_id) {
-      const { accepted_at } = await this.dbService
-        .selectFrom('group_members')
-        .select(['accepted_at'])
-        .where('group_members.group_id', '=', data.group_id as string)
-        .where('group_members.user_id', '=', data.user_id as string)
-        .executeTakeFirstOrThrow();
-      if (accepted_at == null) {
-        throw new HttpException(
-          'Only a member of the group can post a prayer',
-          HttpStatus.FORBIDDEN,
-        );
-      }
-    }
-    return this.dbService.insertInto('prayers').values(data).executeTakeFirst();
+  async createPrayer({
+    user_id,
+    group_id,
+    corporate_id,
+    ...rest
+  }: InsertObject<DB, 'prayers'>) {
+    return this.dbService
+      .insertInto('prayers')
+      .values((eb) => ({
+        user_id: eb
+          .selectFrom('users')
+          .where('users.uid', '=', user_id)
+          .select('users.uid'),
+        group_id: group_id
+          ? eb
+              .selectFrom('groups')
+              .where('groups.id', '=', group_id)
+              .select('groups.id')
+          : null,
+        corporate_id: corporate_id
+          ? eb
+              .selectFrom('corporate_prayers')
+              .where('corporate_prayers.id', '=', corporate_id)
+              .select('corporate_prayers.id')
+          : null,
+        ...rest,
+      }))
+      .executeTakeFirst();
+  }
+
+  async fetchLatestPrayerPray(prayerId: string, userId: string) {
+    return this.dbService
+      .selectFrom('prayer_prays')
+      .where('prayer_prays.prayer_id', '=', prayerId)
+      .where('prayer_prays.user_id', '=', userId)
+      .orderBy('prayer_prays.created_at desc')
+      .select('prayer_prays.created_at')
+      .limit(1)
+      .executeTakeFirst();
   }
 
   async createPrayerPray({
     prayerId,
     userId,
+    value,
   }: {
     prayerId: string;
     userId: string;
+    value?: string;
   }) {
-    const data = await this.dbService
-      .selectFrom('prayer_prays')
-      .select('created_at')
-      .where('prayer_id', '=', prayerId)
-      .where('user_id', '=', userId)
-      .orderBy('created_at desc')
-      .limit(1)
-      .executeTakeFirst();
-    if (data?.created_at != null) {
-      const now = new Date();
-      const diff = now.getTime() - data.created_at.getTime();
-      if (diff < 1000 * 60 * 5) {
-        throw new TooManyPrays();
-      }
-    }
     await this.dbService
       .insertInto('prayer_prays')
-      .values({ prayer_id: prayerId, user_id: userId, created_at: new Date() })
+      .values({
+        prayer_id: prayerId,
+        user_id: userId,
+        created_at: new Date(),
+        value,
+      })
       .executeTakeFirst();
   }
 
-  async createCorporatePrayer(data: InsertObject<DB, 'corporate_prayers'>) {
-    const { moderator } = await this.dbService
-      .selectFrom('group_members')
-      .select(['moderator'])
-      .where('group_members.group_id', '=', data.group_id as string)
-      .where('group_members.user_id', '=', data.user_id as string)
-      .executeTakeFirstOrThrow();
-    if (moderator == null) {
-      throw new HttpException(
-        'Only moderators can post the corporate prayers',
-        HttpStatus.FORBIDDEN,
-      );
-    }
+  async createCorporatePrayer({
+    user_id,
+    group_id,
+    ...rest
+  }: InsertObject<DB, 'corporate_prayers'>) {
     return this.dbService
       .insertInto('corporate_prayers')
-      .values(data)
+      .values((eb) => ({
+        user_id: eb
+          .selectFrom('users')
+          .where('users.uid', '=', user_id)
+          .select('users.uid'),
+        group_id: eb
+          .selectFrom('groups')
+          .where('groups.id', '=', group_id)
+          .select('groups.id'),
+        ...rest,
+      }))
       .executeTakeFirst();
+  }
+
+  async fetchJoinStatusFromPrayer(prayerId: string, userId?: string) {
+    const data = await this.dbService
+      .selectFrom('prayers')
+      .leftJoin('groups', 'prayers.group_id', 'groups.id')
+      .where('prayers.id', '=', prayerId)
+      .$if(!!userId, (qb) =>
+        qb.select((eb) =>
+          eb
+            .selectFrom('group_members')
+            .whereRef('prayers.group_id', '=', 'group_members.group_id')
+            .where('group_members.user_id', '=', userId!)
+            .select('group_members.accepted_at')
+            .as('accepted_at'),
+        ),
+      )
+      .select(['groups.membership_type'])
+      .executeTakeFirst();
+    return {
+      canView: !(
+        data?.membership_type === 'private' && data.accepted_at == null
+      ),
+      canPost: data?.accepted_at == null,
+    };
+  }
+
+  async fetchJoinStatusFromCorporatePrayer(prayerId: string, userId?: string) {
+    const data = await this.dbService
+      .selectFrom('corporate_prayers')
+      .leftJoin('groups', 'corporate_prayers.group_id', 'groups.id')
+      .where('corporate_prayers.id', '=', prayerId)
+      .$if(!!userId, (qb) =>
+        qb.select((eb) =>
+          eb
+            .selectFrom('group_members')
+            .whereRef(
+              'group_members.group_id',
+              '=',
+              'corporate_prayers.group_id',
+            )
+            .where('group_members.user_id', '=', userId!)
+            .select('group_members.accepted_at')
+            .as('accepted_at'),
+        ),
+      )
+      .select(['groups.membership_type'])
+      .executeTakeFirst();
+    return {
+      canView: !(
+        data?.membership_type === 'private' && data.accepted_at == null
+      ),
+      canPost: data?.accepted_at == null,
+    };
   }
 }

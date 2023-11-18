@@ -24,7 +24,7 @@ export class CreateGroupDto {
 }
 
 export class UpdateGroupDto {
-  @IsNotEmpty()
+  @IsOptional()
   @MaxLength(30)
   name: string;
 
@@ -33,7 +33,6 @@ export class UpdateGroupDto {
   description?: string;
 
   @IsOptional()
-  @IsNotEmpty()
   banner?: string;
 }
 

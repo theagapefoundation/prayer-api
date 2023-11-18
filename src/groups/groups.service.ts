@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { sql } from 'kysely';
 import { jsonObjectFrom } from 'kysely/helpers/postgres';
@@ -20,6 +20,7 @@ export class GroupsService {
       .where('groups.id', '=', groupId)
       .select(({ selectFrom }) =>
         selectFrom('group_members')
+          .whereRef('group_members.group_id', '=', 'groups.id')
           .where('accepted_at', 'is not', null)
           .select(({ fn }) =>
             fn
@@ -146,7 +147,7 @@ export class GroupsService {
             membership_type: body.membershipType,
             banner: body.banner,
           })
-          .executeTakeFirstOrThrow(),
+          .executeTakeFirst(),
         trx
           .insertInto('group_members')
           .values({
@@ -155,7 +156,7 @@ export class GroupsService {
             moderator: new Date(),
             accepted_at: new Date(),
           })
-          .executeTakeFirstOrThrow(),
+          .executeTakeFirst(),
       ]);
     });
     return newId;
@@ -165,21 +166,14 @@ export class GroupsService {
     groupId: string;
     name?: string;
     description?: string;
-    banner?: string;
-    requestUser: string;
+    banner?: string | null;
   }) {
-    const { admin_id, banner } = await this.dbService
+    const { banner } = await this.dbService
       .selectFrom('groups')
       .where('groups.id', '=', body.groupId)
-      .select(['admin_id', 'banner'])
+      .select(['banner'])
       .executeTakeFirstOrThrow();
-    if (admin_id !== body.requestUser) {
-      throw new HttpException(
-        'Only admin can edit the group',
-        HttpStatus.FORBIDDEN,
-      );
-    }
-    if (banner != null) {
+    if (body.banner !== undefined && banner != null) {
       this.storageService.publicBucket
         .file(banner)
         .delete({ ignoreNotFound: true });
@@ -191,61 +185,72 @@ export class GroupsService {
         name: body.name,
         description: body.description,
         banner: body.banner,
+        updated_at: new Date(),
       })
-      .executeTakeFirstOrThrow();
+      .executeTakeFirst();
   }
 
   async joinGroup(body: { groupId: string; userId: string }) {
-    const [group, member] = await Promise.all([
-      this.dbService
-        .selectFrom('groups')
-        .where('groups.id', '=', body.groupId)
-        .select('membership_type')
-        .executeTakeFirst(),
-      this.dbService
-        .selectFrom('group_members')
-        .where('group_members.group_id', '=', body.groupId)
-        .where('group_members.user_id', '=', body.userId)
-        .select(['group_members.accepted_at', 'group_members.created_at'])
-        .executeTakeFirst(),
-    ]);
-    if (member?.created_at) {
-      return member?.accepted_at ?? null;
-    }
-    if (group == null) {
-      throw new HttpException('Group does not exist', HttpStatus.BAD_REQUEST);
-    }
-    await this.dbService
+    return this.dbService
       .insertInto('group_members')
-      .values({
-        user_id: body.userId,
-        group_id: body.groupId,
-        accepted_at: group.membership_type === 'open' ? new Date() : null,
-      })
+      .values((eb) => ({
+        user_id: eb
+          .selectFrom('users')
+          .where('users.uid', '=', body.userId)
+          .select('users.uid'),
+        group_id: eb
+          .selectFrom('groups')
+          .where('groups.id', '=', body.groupId)
+          .select('groups.id'),
+        accepted_at: eb
+          .selectFrom('groups')
+          .where('groups.id', '=', body.groupId)
+          .select((qb) =>
+            qb
+              .case()
+              .when('groups.membership_type', '=', 'open')
+              .then(sql<Date>`timezone('utc', now())`)
+              .else(sql<null>`NULL`)
+              .end()
+              .as('accepted_at'),
+          ),
+      }))
+      .onConflict((oc) =>
+        oc.columns(['group_id', 'user_id']).doUpdateSet((eb) => ({
+          accepted_at: eb
+            .selectFrom('groups')
+            .where('groups.id', '=', body.groupId)
+            .select((qb) =>
+              qb
+                .case()
+                .when('membership_type', '=', 'open')
+                .then(sql<Date>`timezone('utc', now())`)
+                .else(sql<null>`NULL`)
+                .end()
+                .as('accepted_at'),
+            ),
+        })),
+      )
+      .returning('accepted_at')
       .executeTakeFirstOrThrow();
-
-    return group.membership_type === 'open' ? new Date() : null;
   }
 
   async leaveGroup(body: { groupId: string; userId: string }) {
-    const group = await this.dbService
-      .selectFrom('groups')
-      .where('groups.id', '=', body.groupId)
-      .select(['membership_type', 'admin_id'])
-      .executeTakeFirst();
-    if (group == null) {
-      throw new HttpException('Group does not exist', HttpStatus.BAD_REQUEST);
-    }
-    if (group.admin_id === body.userId) {
-      throw new HttpException(
-        'Admin cannot leave the group',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
     await this.dbService
       .deleteFrom('group_members')
       .where('group_id', '=', body.groupId)
-      .where('user_id', '=', body.userId)
+      .where((eb) =>
+        eb.and([
+          eb('user_id', '=', body.userId),
+          eb.exists(
+            eb
+              .selectFrom('groups')
+              .where('admin_id', '!=', body.userId)
+              .where('user_id', '=', body.userId),
+          ),
+        ]),
+      )
+      .returning('group_members.id')
       .executeTakeFirstOrThrow();
   }
 
@@ -300,43 +305,37 @@ export class GroupsService {
   }
 
   async deleteGroup(groupId: string) {
-    const [data, prayer_media] = await Promise.all([
-      this.dbService
-        .selectFrom('groups')
-        .selectAll()
-        .where('groups.id', '=', groupId)
-        .executeTakeFirst(),
-      this.dbService
-        .selectFrom('prayers')
-        .select(['prayers.media'])
-        .where('prayers.group_id', '=', groupId)
-        .execute(),
-    ]);
-    if (data == null) {
-      throw Error('Unable to find the group');
-    }
-    await Promise.all([
-      ...prayer_media.map(({ media }) =>
-        media
-          ? this.storageService.publicBucket
-              .file(media)
-              .delete({ ignoreNotFound: true })
-          : null,
-      ),
-      this.dbService
-        .deleteFrom('group_members')
-        .where('group_id', '=', groupId)
-        .execute(),
-      this.dbService.deleteFrom('groups').where('id', '=', groupId).execute(),
-      this.dbService
-        .deleteFrom('corporate_prayers')
-        .where('group_id', '=', groupId)
-        .execute(),
-      this.dbService
-        .deleteFrom('prayers')
-        .where('group_id', '=', groupId)
-        .execute(),
-    ]);
+    const files: string[] = [];
+    await this.dbService.transaction().execute(async (trx) => {
+      const [banners, _, __, medias] = await Promise.all([
+        trx
+          .deleteFrom('groups')
+          .where('groups.id', '=', groupId)
+          .returning('groups.banner')
+          .execute(),
+        trx
+          .deleteFrom('group_members')
+          .where('group_members.group_id', '=', groupId)
+          .execute(),
+        trx
+          .deleteFrom('corporate_prayers')
+          .where('corporate_prayers.group_id', '=', groupId)
+          .execute(),
+        trx
+          .deleteFrom('prayers')
+          .where('prayers.group_id', '=', groupId)
+          .returning('prayers.media')
+          .execute(),
+      ]);
+      files.push(
+        ...(banners
+          .map(({ banner }) => banner)
+          .filter((value) => !!value) as string[]),
+        ...(medias
+          .map(({ media }) => media)
+          .filter((value) => !!value) as string[]),
+      );
+    });
   }
 
   async checkModerator(groupId: string, userId: string) {

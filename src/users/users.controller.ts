@@ -2,8 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  HttpException,
-  HttpStatus,
   Param,
   Post,
   Put,
@@ -21,6 +19,10 @@ import {
   UpdateUserDto,
 } from './users.interface';
 import { AuthGuard } from 'src/auth/auth.guard';
+import {
+  FollowMyselfError,
+  UsernameDuplicatedError,
+} from 'src/errors/common.error';
 
 @Controller('users')
 export class UsersController {
@@ -66,44 +68,37 @@ export class UsersController {
       if (e instanceof Error) {
         if (
           e.message ===
-          'duplicate key value violates unique constraint "users_uid_key"'
+          'duplicate key value violates unique constraint "users_username_key"'
         ) {
-          return {
-            message: 'Username already taken',
-            createdAt: new Date().toISOString(),
-          };
+          throw new UsernameDuplicatedError();
         }
-        return { message: e.message, createdAt: new Date().toISOString() };
       }
-      return { message: 'Unknown error', createdAt: new Date().toISOString() };
+      throw e;
     }
   }
 
+  @UseInterceptors(ResponseInterceptor)
   @UseGuards(AuthGuard)
   @Put()
   async updateUser(@User() user: UserEntity, @Body() form: UpdateUserDto) {
     try {
       await this.appService.updateUser({
         ...form,
-        profile: form.profile == 'null' ? null : form.profile,
-        banner: form.banner == 'null' ? null : form.banner,
+        profile: form.profile == '' ? null : form.profile,
+        banner: form.banner == '' ? null : form.banner,
         uid: user.sub,
       });
-      return { data: 'success', createdAt: new Date().toISOString() };
+      return 'success';
     } catch (e) {
       if (e instanceof Error) {
         if (
           e.message ===
-          'duplicate key value violates unique constraint "users_uid_key"'
+          'duplicate key value violates unique constraint "users_username_key"'
         ) {
-          return {
-            message: 'Username already taken',
-            createdAt: new Date().toISOString(),
-          };
+          throw new UsernameDuplicatedError();
         }
-        return { message: e.message, createdAt: new Date().toISOString() };
       }
-      return { message: 'Unknown error', createdAt: new Date().toISOString() };
+      throw e;
     }
   }
 
@@ -125,10 +120,7 @@ export class UsersController {
   ) {
     try {
       if (user.sub === userId) {
-        throw new HttpException(
-          "You can't follow yourself",
-          HttpStatus.BAD_REQUEST,
-        );
+        throw new FollowMyselfError();
       }
       await this.appService.handleFollowings({
         following: user.sub,
@@ -182,7 +174,6 @@ export class UsersController {
   @UseInterceptors(ResponseInterceptor)
   @Get(':userId/groups')
   async fetchUserGroups(@Param('userId') userId: string) {
-    const groups = await this.appService.fetchUserGroups(userId);
-    return groups.map(({ group_id }) => group_id);
+    return this.appService.fetchUserGroups(userId);
   }
 }

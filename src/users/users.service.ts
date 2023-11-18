@@ -24,6 +24,9 @@ export class UsersService {
       return this.dbService
         .insertInto('user_follows')
         .values({ follower_id: follower, following_id: following })
+        .onConflict((oc) =>
+          oc.columns(['follower_id', 'following_id']).doNothing(),
+        )
         .executeTakeFirst();
     }
     return this.dbService
@@ -177,14 +180,6 @@ export class UsersService {
     profile?: string;
     banner?: string;
   }) {
-    const data = await this.dbService
-      .selectFrom('users')
-      .where('uid', '=', uid)
-      .select('uid')
-      .executeTakeFirst();
-    if (data != null) {
-      throw Error('User already exists');
-    }
     await this.dbService
       .insertInto('users')
       .values({
@@ -243,31 +238,27 @@ export class UsersService {
         bio,
         profile,
         banner,
+        updated_at: new Date(),
       })
       .executeTakeFirstOrThrow();
   }
 
   async fetchUserGroups(userId: string) {
-    return this.dbService
+    const data = await this.dbService
       .selectFrom('group_members')
       .where('user_id', '=', userId)
       .select('group_id')
       .distinct()
       .execute();
+    return data.map(({ group_id }) => group_id);
   }
 
   async createNewFcmTokens(userId: string, value: string) {
-    const data = await this.dbService
-      .selectFrom('user_fcm_tokens')
-      .where('user_id', '=', userId)
-      .where('value', '=', value)
-      .executeTakeFirst();
-    if (data == null) {
-      return this.dbService
-        .insertInto('user_fcm_tokens')
-        .values({ user_id: userId, value })
-        .executeTakeFirst();
-    }
+    return this.dbService
+      .insertInto('user_fcm_tokens')
+      .values({ user_id: userId, value })
+      .onConflict((oc) => oc.columns(['user_id', 'value']).doNothing())
+      .execute();
   }
 
   fetchPresignedUrl(data: { profile?: string | null; banner?: string | null }) {

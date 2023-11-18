@@ -3,8 +3,6 @@ import {
   Controller,
   Delete,
   Get,
-  HttpException,
-  HttpStatus,
   Param,
   Post,
   Put,
@@ -17,6 +15,7 @@ import { ResponseInterceptor } from 'src/response.interceptor';
 import { GroupsService } from './groups.service';
 import { CreateGroupDto, UpdateGroupDto } from './groups.interface';
 import { AuthGuard } from 'src/auth/auth.guard';
+import { OperationNotAllowedError } from 'src/errors/common.error';
 
 @Controller('groups')
 export class GroupsController {
@@ -75,16 +74,12 @@ export class GroupsController {
   ) {
     const data = await this.appService.fetchGroup(groupId);
     if (data?.admin_id !== user.sub) {
-      throw new HttpException(
-        'Only admin can make an update',
-        HttpStatus.FORBIDDEN,
-      );
+      throw new OperationNotAllowedError('Only admin can make an update');
     }
     await this.appService.updateGroup({
       name: body.name,
       description: body.description,
-      banner: body.banner,
-      requestUser: user.sub,
+      banner: body.banner === '' ? null : body.banner,
       groupId,
     });
     return this.appService.fetchGroup(groupId, user?.sub);
@@ -99,10 +94,7 @@ export class GroupsController {
   ) {
     const data = await this.appService.fetchGroup(groupId);
     if (data?.admin_id !== user.sub) {
-      throw new HttpException(
-        'Only admin can make an update',
-        HttpStatus.FORBIDDEN,
-      );
+      throw new OperationNotAllowedError('Only admin can delete a group');
     }
     await this.appService.deleteGroup(groupId);
     return 'success';

@@ -14,16 +14,27 @@ import {
 import { PrayersService } from './prayers.service';
 import { AuthGuard } from 'src/auth/auth.guard';
 import { User, UserEntity } from 'src/auth/auth.decorator';
-import { CreateCorporatePrayerDto, CreatePrayerDto } from './prayers.interface';
+import {
+  CreateCorporatePrayerDto,
+  CreatePrayerDto,
+  CreatePrayerPrayDto,
+} from './prayers.interface';
 import { ResponseInterceptor } from 'src/response.interceptor';
-import { TooManyPrays } from './prayers.error';
 import * as moment from 'moment';
 import { StorageService } from 'src/storage/storage.service';
+import { Timezone } from 'src/timezone.guard';
+import {
+  OperationNotAllowedError,
+  PrivateGroupError,
+  TargetNotFoundError,
+} from 'src/errors/common.error';
+import { GroupsService } from 'src/groups/groups.service';
 
 @Controller('prayers')
 export class PrayersController {
   constructor(
     private appService: PrayersService,
+    private groupService: GroupsService,
     private storageService: StorageService,
   ) {}
 
@@ -70,6 +81,13 @@ export class PrayersController {
     @Query('cursor') cursor?: string,
     @User() user?: UserEntity,
   ) {
+    const group = await this.groupService.fetchGroup(groupId, user?.sub);
+    if (group?.membership_type === 'private' && group?.accepted_at == null) {
+      throw new PrivateGroupError(
+        'You must be a member to see a private group',
+      );
+    }
+
     const data = await this.appService.fetchPrayers({
       groupId,
       requestingUserId: user?.sub,
@@ -85,7 +103,20 @@ export class PrayersController {
 
   @UseInterceptors(ResponseInterceptor)
   @Get('corporate/:prayerId')
-  async fetchCorporatePrayer(@Param('prayerId') prayerId: string) {
+  async fetchCorporatePrayer(
+    @Param('prayerId') prayerId: string,
+    @User() user?: UserEntity,
+  ) {
+    const { canView } =
+      await this.appService.fetchJoinStatusFromCorporatePrayer(
+        prayerId,
+        user?.sub,
+      );
+    if (!canView) {
+      throw new PrivateGroupError(
+        'You must be a member to see a private group',
+      );
+    }
     return this.appService.fetchCorporatePrayer(prayerId);
   }
 
@@ -98,10 +129,7 @@ export class PrayersController {
   ) {
     const data = await this.appService.fetchCorporatePrayer(prayerId);
     if (data?.user_id !== user.sub) {
-      throw new HttpException(
-        'Only owner can delete the post',
-        HttpStatus.FORBIDDEN,
-      );
+      throw new OperationNotAllowedError('Only owner can delete the post');
     }
     return this.appService.deleteCorporatePrayer(prayerId);
   }
@@ -112,6 +140,16 @@ export class PrayersController {
     @User() user?: UserEntity,
     @Query('cursor') cursor?: string,
   ) {
+    const { canView } =
+      await this.appService.fetchJoinStatusFromCorporatePrayer(
+        prayerId,
+        user?.sub,
+      );
+    if (!canView) {
+      throw new PrivateGroupError(
+        'You must be a member to see a private group',
+      );
+    }
     const data = await this.appService.fetchPrayers({
       corporateId: prayerId,
       requestingUserId: user?.sub,
@@ -128,13 +166,23 @@ export class PrayersController {
   @Get('corporate/by/group/:groupId')
   async fetchGroupCorporatePrayers(
     @Param('groupId') groupId: string,
+    @Timezone() offset?: number,
     @Query('cursor') cursor?: string,
     @User() user?: UserEntity,
   ) {
+    const group = await this.groupService.fetchGroup(groupId, user?.sub);
+    if (group == null) {
+      throw new TargetNotFoundError('Unable to find the group');
+    }
+    if (group.membership_type === 'private' && group?.accepted_at == null) {
+      throw new PrivateGroupError(
+        'You must be a member to see a private group',
+      );
+    }
     const data = await this.appService.fetchGroupCorporatePrayers({
       groupId,
-      userId: user?.sub,
       cursor,
+      offset,
     });
     const newCursor = data.length < 6 ? null : data.pop();
     return {
@@ -150,6 +198,15 @@ export class PrayersController {
     @Param('prayerId') prayerId: string,
     @User() user?: UserEntity,
   ) {
+    const { canView } = await this.appService.fetchJoinStatusFromPrayer(
+      prayerId,
+      user?.sub,
+    );
+    if (!canView) {
+      throw new PrivateGroupError(
+        'You must be a member to see a private group',
+      );
+    }
     return this.appService.fetchPrayer({ prayerId, userId: user?.sub });
   }
 
@@ -233,6 +290,15 @@ export class PrayersController {
     @User() user: UserEntity,
     @Body() form: CreateCorporatePrayerDto,
   ) {
+    const group = await this.groupService.fetchGroup(form.groupId, user.sub);
+    if (group == null) {
+      throw new TargetNotFoundError('Unable to find the group');
+    }
+    if (group.moderator == null) {
+      throw new OperationNotAllowedError(
+        'Only moderator can post the corporate prayer',
+      );
+    }
     let prayers = form.prayers ? JSON.parse(form.prayers) : null;
     if (prayers) {
       if (
@@ -286,18 +352,28 @@ export class PrayersController {
   async createPrayerPray(
     @Param('prayerId') prayerId: string,
     @User() user: UserEntity,
+    @Body() body?: CreatePrayerPrayDto,
   ) {
     try {
+      const data = await this.appService.fetchLatestPrayerPray(
+        prayerId,
+        user.sub,
+      );
+      if (data?.created_at != null) {
+        const now = new Date();
+        const diff = now.getTime() - data.created_at.getTime();
+        if (diff < 1000 * 60 * 5) {
+          throw new Error('Need at least 5 minutes to repray');
+        }
+      }
       await this.appService.createPrayerPray({
         prayerId,
         userId: user.sub,
+        value: body?.value,
       });
       return 'success';
     } catch (e) {
-      if (e instanceof TooManyPrays) {
-        return 'false';
-      }
-      throw e;
+      return 'false';
     }
   }
 }
