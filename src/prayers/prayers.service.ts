@@ -207,9 +207,34 @@ export class PrayersService {
         !!userId && (userId !== requestingUserId || requestingUserId == null),
         (eb) => eb.where('anon', '=', false),
       )
+      .$if(!!userId && userId !== requestingUserId && !requestingUserId, (eb) =>
+        eb.where((qb) =>
+          qb.exists(
+            qb
+              .selectFrom('groups')
+              .whereRef('prayers.group_id', '=', 'groups.id')
+              .where('groups.membership_type', '!=', 'private'),
+          ),
+        ),
+      )
+      .$if(
+        !!userId && userId !== requestingUserId && !!requestingUserId,
+        (eb) =>
+          eb.where((qb) =>
+            qb.exists(
+              qb
+                .selectFrom('group_members')
+                .leftJoin('groups', 'group_members.group_id', 'groups.id')
+                .whereRef('prayers.group_id', '=', 'group_members.group_id')
+                .where('group_members.user_id', '=', requestingUserId!)
+                .where('groups.membership_type', '!=', 'private')
+                .where('group_members.accepted_at', 'is not', null),
+            ),
+          ),
+      )
       .$if(!!cursor, (eb) => eb.where('id', '=', cursor!))
       .orderBy('prayers.created_at desc')
-      .select(['id'])
+      .select(['prayers.id'])
       .limit(11)
       .execute();
     return data.map(({ id }) => id);
