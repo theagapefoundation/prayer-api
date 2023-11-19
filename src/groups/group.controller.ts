@@ -20,10 +20,14 @@ import {
   OperationNotAllowedError,
   TargetNotFoundError,
 } from 'src/errors/common.error';
+import { FirebaseService } from 'src/firebase/firebase.service';
 
 @Controller('groups/:groupId')
 export class GroupController {
-  constructor(private readonly appService: GroupsService) {}
+  constructor(
+    private readonly appService: GroupsService,
+    private readonly firebaseSerivce: FirebaseService,
+  ) {}
 
   @UseInterceptors(ResponseInterceptor)
   @Get()
@@ -45,6 +49,7 @@ export class GroupController {
           groupId,
           userId: user.sub,
         });
+        this.firebaseSerivce.joinGroup(groupId, user.sub);
         return accepted_at;
       }
       const data = await this.appService.fetchGroup(groupId);
@@ -104,9 +109,8 @@ export class GroupController {
     @Query('cursor') cursor?: number,
   ) {
     if (!(await this.appService.checkModerator(groupId, user.sub))) {
-      throw new HttpException(
+      throw new OperationNotAllowedError(
         'Only moderators are able to see the requests',
-        HttpStatus.BAD_REQUEST,
       );
     }
     const data = await this.appService.fetchMembers(groupId, {
@@ -125,12 +129,12 @@ export class GroupController {
     @User() user: UserEntity,
   ) {
     if (!(await this.appService.checkModerator(groupId, user.sub))) {
-      throw new HttpException(
+      throw new OperationNotAllowedError(
         'Only moderators are able to see the requests',
-        HttpStatus.BAD_REQUEST,
       );
     }
     await this.appService.handleRequest({ groupId, userId });
+    this.firebaseSerivce.groupRequestAccepted(groupId, userId);
     return 'success';
   }
 
@@ -149,6 +153,7 @@ export class GroupController {
       );
     }
     await this.appService.handleModerator({ groupId, userId });
+    this.firebaseSerivce.memberPromoted(groupId, userId);
     return 'success';
   }
 }

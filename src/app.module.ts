@@ -7,6 +7,7 @@ import { UploadsModule } from './uploads/uploads.module';
 import { APP_GUARD } from '@nestjs/core';
 import { UserGuard } from './auth/user.guard';
 import { PrayersModule } from './prayers/prayers.module';
+import { FirebaseModule } from './firebase/firebase.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { PrayersModule } from './prayers/prayers.module';
     GroupsModule,
     UploadsModule,
     PrayersModule,
+    FirebaseModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: UserGuard }],
 })

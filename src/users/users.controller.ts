@@ -23,10 +23,14 @@ import {
   FollowMyselfError,
   UsernameDuplicatedError,
 } from 'src/errors/common.error';
+import { FirebaseService } from 'src/firebase/firebase.service';
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly appService: UsersService) {}
+  constructor(
+    private readonly appService: UsersService,
+    private readonly firebaseSerivce: FirebaseService,
+  ) {}
 
   @Get()
   async searchUser(
@@ -127,6 +131,9 @@ export class UsersController {
         follower: userId,
         value,
       });
+      if (value) {
+        this.firebaseSerivce.followUser(user.sub, userId);
+      }
       return { success: true };
     } catch (e) {
       return { success: false };

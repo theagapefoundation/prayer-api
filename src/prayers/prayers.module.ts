@@ -6,9 +6,16 @@ import { StorageModule } from 'src/storage/storage.module';
 import { PrayersController } from './prayers.controller';
 import { PrayersService } from './prayers.service';
 import { GroupsService } from 'src/groups/groups.service';
+import { FirebaseModule } from 'src/firebase/firebase.module';
 
 @Module({
-  imports: [KyselyModule, AuthModule, StorageModule, ConfigModule],
+  imports: [
+    KyselyModule,
+    AuthModule,
+    StorageModule,
+    ConfigModule,
+    FirebaseModule,
+  ],
   controllers: [PrayersController],
   providers: [PrayersService, GroupsService],
 })

@@ -5,9 +5,16 @@ import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 import { ConfigModule } from '@nestjs/config';
 import { StorageModule } from 'src/storage/storage.module';
+import { FirebaseModule } from 'src/firebase/firebase.module';
 
 @Module({
-  imports: [KyselyModule, AuthModule, StorageModule, ConfigModule],
+  imports: [
+    KyselyModule,
+    AuthModule,
+    StorageModule,
+    ConfigModule,
+    FirebaseModule,
+  ],
   controllers: [UsersController],
   providers: [UsersService],
 })

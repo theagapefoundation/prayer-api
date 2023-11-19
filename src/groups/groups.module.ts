@@ -6,9 +6,16 @@ import { GroupsController } from './groups.controller';
 import { ConfigModule } from '@nestjs/config';
 import { StorageModule } from 'src/storage/storage.module';
 import { GroupController } from './group.controller';
+import { FirebaseModule } from 'src/firebase/firebase.module';
 
 @Module({
-  imports: [KyselyModule, AuthModule, StorageModule, ConfigModule],
+  imports: [
+    KyselyModule,
+    AuthModule,
+    StorageModule,
+    ConfigModule,
+    FirebaseModule,
+  ],
   controllers: [GroupController, GroupsController],
   providers: [GroupsService],
 })

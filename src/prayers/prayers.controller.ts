@@ -29,6 +29,7 @@ import {
   TargetNotFoundError,
 } from 'src/errors/common.error';
 import { GroupsService } from 'src/groups/groups.service';
+import { FirebaseService } from 'src/firebase/firebase.service';
 
 @Controller('prayers')
 export class PrayersController {
@@ -36,6 +37,7 @@ export class PrayersController {
     private appService: PrayersService,
     private groupService: GroupsService,
     private storageService: StorageService,
+    private firebaseService: FirebaseService,
   ) {}
 
   @Get('by/user/:userId')
@@ -379,6 +381,7 @@ export class PrayersController {
         userId: user.sub,
         value: body?.value,
       });
+      this.firebaseService.prayForUser(prayerId, user.sub);
       return 'success';
     } catch (e) {
       return 'false';
