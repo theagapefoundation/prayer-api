@@ -192,23 +192,22 @@ export class PrayersService {
     requestingUserId,
     cursor,
     corporateId,
+    hideAnonymous,
   }: {
     groupId?: string;
     requestingUserId?: string;
     userId?: string;
     corporateId?: string;
     cursor?: string;
+    hideAnonymous?: boolean;
   }) {
     const data = await this.dbService
       .selectFrom('prayers')
       .$if(!!groupId, (eb) => eb.where('group_id', '=', groupId!))
       .$if(!!userId, (eb) => eb.where('user_id', '=', userId!))
       .$if(!!corporateId, (eb) => eb.where('corporate_id', '=', corporateId!))
-      .$if(
-        !!userId && (userId !== requestingUserId || requestingUserId == null),
-        (eb) => eb.where('anon', '=', false),
-      )
-      .$if(!!userId && userId !== requestingUserId && !requestingUserId, (eb) =>
+      .$if(!!hideAnonymous, (eb) => eb.where('anon', '=', hideAnonymous!))
+      .$if(requestingUserId == null, (eb) =>
         eb.where((qb) =>
           qb.exists(
             qb
@@ -218,20 +217,25 @@ export class PrayersService {
           ),
         ),
       )
-      .$if(
-        !!userId && userId !== requestingUserId && !!requestingUserId,
-        (eb) =>
-          eb.where((qb) =>
-            qb.exists(
-              qb
+      .$if(!!requestingUserId, (qb) =>
+        qb.where(({ eb, or, exists }) =>
+          or([
+            eb('prayers.group_id', 'is', null),
+            exists(
+              eb
+                .selectFrom('groups')
+                .whereRef('prayers.group_id', '=', 'groups.id')
+                .where('groups.membership_type', '!=', 'private'),
+            ),
+            exists(
+              eb
                 .selectFrom('group_members')
-                .leftJoin('groups', 'group_members.group_id', 'groups.id')
-                .whereRef('prayers.group_id', '=', 'group_members.group_id')
+                .whereRef('group_members.group_id', '=', 'prayers.group_id')
                 .where('group_members.user_id', '=', requestingUserId!)
-                .where('groups.membership_type', '!=', 'private')
                 .where('group_members.accepted_at', 'is not', null),
             ),
-          ),
+          ]),
+        ),
       )
       .$if(!!cursor, (eb) => eb.where('id', '=', cursor!))
       .orderBy('prayers.created_at desc')

@@ -50,6 +50,7 @@ export class PrayersController {
       userId,
       requestingUserId: user?.sub,
       cursor,
+      hideAnonymous: userId !== user?.sub,
     });
     const newCursor = data.length < 11 ? null : data.pop();
     return {
