@@ -170,6 +170,7 @@ export class PrayersService {
     const data = await this.dbService
       .selectFrom('prayers')
       .select('prayers.id')
+      .where('prayers.group_id', 'is', null)
       .orderBy('prayers.created_at desc')
       .orderBy((eb) =>
         eb
