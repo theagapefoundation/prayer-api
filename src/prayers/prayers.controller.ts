@@ -276,7 +276,7 @@ export class PrayersController {
   @Post()
   async createPrayer(@User() user: UserEntity, @Body() form: CreatePrayerDto) {
     if (!!form.groupId) {
-      const data = await this.groupService.fetchGroup(form.groupId);
+      const data = await this.groupService.fetchGroup(form.groupId, user.sub);
       if (data?.accepted_at == null) {
         throw new OperationNotAllowedError(
           'You have to be a member of the group to post the prayer',
