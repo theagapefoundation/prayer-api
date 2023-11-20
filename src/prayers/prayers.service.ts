@@ -180,6 +180,84 @@ export class PrayersService {
           .select('prayer_prays.created_at')
           .limit(1),
       )
+      .$if(!!userId, (qb) =>
+        qb
+          .clearOrderBy()
+          .select(
+            sql<number>`
+        -- IF PRAYER IS FROM FOLLOWERS
+        CASE
+          WHEN EXISTS (
+            SELECT uf.id
+            FROM user_follows uf
+            WHERE uf.following_id = ${userId}
+            AND uf.follower_id = prayers.user_id
+          ) THEN 1
+          ELSE 0
+        END +
+
+        -- LENGTH OF PRAYER
+        CASE
+          WHEN LENGTH(prayers.value) < 50
+          THEN 0
+          WHEN LENGTH(prayers.value) < 150
+          THEN 0.75
+          ELSE 1
+        END +
+
+        -- USER HAS PRAYED THIS PRAYER OF A USER BEFORE
+        CASE
+          WHEN EXISTS ( 
+            SELECT id
+            FROM prayer_prays
+            WHERE prayer_prays.user_id = ${userId} AND prayer_prays.prayer_id = prayers.id
+          ) THEN 0.25
+          ELSE 0
+        END +
+
+        -- USER HAS PRAYED PRAYERS OF A USER BEFORE
+        CASE
+          WHEN EXISTS ( 
+            SELECT (
+              SELECT id
+              FROM prayer_prays
+              WHERE prayer_prays.prayer_id = tp.id AND prayer_prays.user_id = ${userId}
+            ) AS pp
+            FROM prayers tp
+            WHERE tp.id != prayers.id
+          ) THEN 0.5
+          ELSE 0
+        END +
+
+        -- NUMBER OF PRAYS AND SUM OF LENGTH OF PRAYS OF MINE
+        (
+          SELECT COUNT(prayer_prays.id) * 0.1 + SUM(COALESCE(LENGTH(prayer_prays.value), 0)) / 150
+          FROM prayer_prays
+          WHERE prayer_prays.prayer_id = prayers.id AND prayer_prays.user_id = prayers.user_id
+        ) +
+
+        -- NUMBER OF PRAYS AND SUM OF LENGTH OF PRAYS OF ALL
+        (
+          SELECT COUNT(prayer_prays.id) * 0.05 + SUM(COALESCE(LENGTH(prayer_prays.value), 0)) / 200
+          FROM prayer_prays
+          WHERE prayer_prays.prayer_id = prayers.id
+        ) +
+        
+        -- TIME PASSES AFTER PRAY POSTED
+        (
+          SELECT EXTRACT(EPOCH FROM prayer_prays.created_at - NOW())
+          FROM prayer_prays
+          WHERE prayer_prays.prayer_id = prayers.id
+          ORDER BY prayer_prays.created_at DESC
+          LIMIT 1
+        ) / (60 * 60 * 24 * 1.5) +
+
+        -- TIME PASSES AFTER PRAYER POSTED
+        EXTRACT(EPOCH FROM prayers.created_at - NOW()) / (60 * 60 * 24 * 7)
+      `.as('weight'),
+          )
+          .orderBy('weight desc'),
+      )
       .$if(!!cursor, (eb) => eb.where('prayers.id', '=', cursor!))
       .limit(11)
       .execute();
