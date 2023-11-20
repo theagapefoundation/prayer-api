@@ -135,7 +135,7 @@ export class FirebaseService {
       this.send({
         userId: fellows
           .map(({ user_id }) => user_id)
-          .filter((value) => value !== writerUid),
+          .filter((value) => value !== sender),
         title: 'Prayer',
         body: `${senderUsername} has prayed for ${writerUsername}`,
         data: { prayerId },
