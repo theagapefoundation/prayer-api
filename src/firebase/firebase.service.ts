@@ -119,12 +119,14 @@ export class FirebaseService {
         .select('prayers.user_id')
         .executeTakeFirstOrThrow(),
     ]);
-    this.send({
-      userId: [user_id],
-      title: 'Prayer',
-      body: `${username} has prayed for you`,
-      data: { prayerId },
-    });
+    if (user_id !== fromUserId) {
+      this.send({
+        userId: [user_id],
+        title: 'Prayer',
+        body: `${username} has prayed for you`,
+        data: { prayerId },
+      });
+    }
   }
 
   async send(params: {
@@ -139,6 +141,7 @@ export class FirebaseService {
         await this.dbService
           .selectFrom('user_fcm_tokens')
           .select('user_fcm_tokens.value')
+          .distinct()
           .where('user_id', 'in', params.userId)
           .execute()
       ).map(({ value }) => value);
