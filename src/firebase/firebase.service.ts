@@ -106,24 +106,46 @@ export class FirebaseService {
     });
   }
 
-  async prayForUser(prayerId: string, fromUserId: string) {
-    const [{ username }, { user_id }] = await Promise.all([
+  async prayForUser(prayerId: string, sender: string, notifyFellows?: boolean) {
+    const [
+      { username: senderUsername },
+      { uid: writerUid, username: writerUsername },
+      fellows,
+    ] = await Promise.all([
       this.dbService
         .selectFrom('users')
-        .where('users.uid', '=', fromUserId)
+        .where('users.uid', '=', sender)
         .select('users.username')
         .executeTakeFirstOrThrow(),
       this.dbService
         .selectFrom('prayers')
         .where('prayers.id', '=', prayerId)
-        .select('prayers.user_id')
+        .leftJoin('users', 'users.uid', 'prayers.user_id')
+        .select(['users.uid', 'users.username'])
         .executeTakeFirstOrThrow(),
+      !notifyFellows
+        ? []
+        : this.dbService
+            .selectFrom('prayer_prays')
+            .where('prayer_prays.prayer_id', '=', prayerId)
+            .select('prayer_prays.user_id')
+            .execute(),
     ]);
-    if (user_id !== fromUserId) {
+    if (notifyFellows) {
       this.send({
-        userId: [user_id],
+        userId: fellows
+          .map(({ user_id }) => user_id)
+          .filter((value) => value !== writerUid),
         title: 'Prayer',
-        body: `${username} has prayed for you`,
+        body: `${senderUsername} has prayed for ${writerUsername}`,
+        data: { prayerId },
+      });
+    }
+    if (sender !== writerUid) {
+      this.send({
+        userId: [writerUid!],
+        title: 'Prayer',
+        body: `${senderUsername} has prayed for you`,
         data: { prayerId },
       });
     }

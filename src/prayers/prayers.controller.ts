@@ -400,7 +400,7 @@ export class PrayersController {
         userId: user.sub,
         value: body?.value,
       });
-      this.firebaseService.prayForUser(prayerId, user.sub);
+      this.firebaseService.prayForUser(prayerId, user.sub, !!body?.value);
       return 'success';
     } catch (e) {
       return 'false';
