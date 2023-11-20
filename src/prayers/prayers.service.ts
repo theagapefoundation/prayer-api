@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InsertObject, sql } from 'kysely';
+import { InsertObject, UpdateObject, sql } from 'kysely';
 import { KyselyService } from 'src/kysely/kysely.service';
 import { jsonObjectFrom } from 'kysely/helpers/postgres';
 import { StorageService } from 'src/storage/storage.service';
@@ -569,6 +569,27 @@ export class PrayersService {
       }))
       .returning('corporate_prayers.id')
       .executeTakeFirstOrThrow();
+  }
+
+  async updateCorporatePrayer({
+    id,
+    description,
+    started_at,
+    ended_at,
+    title,
+    prayers,
+  }: UpdateObject<DB, 'corporate_prayers'>) {
+    return this.dbService
+      .updateTable('corporate_prayers')
+      .where('corporate_prayers.id', '=', id!)
+      .set({
+        description,
+        started_at,
+        ended_at,
+        title,
+        prayers,
+      })
+      .executeTakeFirst();
   }
 
   async fetchJoinStatusFromPrayer(prayerId: string, userId?: string) {

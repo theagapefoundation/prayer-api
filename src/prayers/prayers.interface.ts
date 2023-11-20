@@ -18,6 +18,25 @@ export class CreateCorporatePrayerDto {
   description?: string;
 
   @IsJSON()
+  prayers: string;
+
+  @IsOptional()
+  startedAt?: string;
+
+  @IsOptional()
+  endedAt?: string;
+}
+
+export class UpdateCorporatePrayerDto {
+  @IsOptional()
+  @IsNotEmpty()
+  title: string;
+
+  @IsOptional()
+  description?: string;
+
+  @IsOptional()
+  @IsJSON()
   prayers?: string;
 
   @IsOptional()

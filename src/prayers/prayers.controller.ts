@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Put,
   Query,
   UseGuards,
   UseInterceptors,
@@ -18,6 +19,7 @@ import {
   CreateCorporatePrayerDto,
   CreatePrayerDto,
   CreatePrayerPrayDto,
+  UpdateCorporatePrayerDto,
 } from './prayers.interface';
 import { ResponseInterceptor } from 'src/response.interceptor';
 import * as moment from 'moment';
@@ -354,6 +356,68 @@ export class PrayersController {
       groupId: form.groupId,
       uploaderId: user.sub,
       prayerId: id,
+    });
+    return 'success';
+  }
+
+  @UseGuards(AuthGuard)
+  @UseInterceptors(ResponseInterceptor)
+  @Put('corporate/:corporateId')
+  async editCorporatePrayer(
+    @Param('corporateId') corporateId: string,
+    @User() user: UserEntity,
+    @Body() form: UpdateCorporatePrayerDto,
+  ) {
+    const prayer = await this.appService.fetchCorporatePrayer(corporateId);
+    if (prayer == null) {
+      throw new TargetNotFoundError('Unable to find the corporate prayer');
+    }
+    if (prayer.user_id !== user.sub) {
+      throw new OperationNotAllowedError(
+        'Only a writer of the prayer can edit',
+      );
+    }
+    let prayers = form.prayers ? JSON.parse(form.prayers) : null;
+    if (prayers) {
+      if (
+        !Array.isArray(prayers) ||
+        prayers.some((value) => typeof value !== 'string')
+      ) {
+        throw new HttpException(
+          'prayers must be an array of string',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      if (prayers.length === 0) {
+        prayers = null;
+      } else if (prayers.length > 10) {
+        throw new HttpException(
+          'prayers can have up to 10 prayers',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
+    if (form.startedAt != null && form.endedAt != null) {
+      if (moment(form.endedAt).isBefore(moment(form.startedAt))) {
+        throw new HttpException(
+          'endedAt cannot be before startedAt',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
+    await this.appService.updateCorporatePrayer({
+      id: corporateId,
+      title: form.title,
+      description: form.description,
+      prayers: JSON.stringify(prayers),
+      started_at:
+        form.startedAt == null
+          ? null
+          : moment(form.startedAt).startOf('day').toDate(),
+      ended_at:
+        form.endedAt == null
+          ? null
+          : moment(form.endedAt).endOf('day').toDate(),
     });
     return 'success';
   }
