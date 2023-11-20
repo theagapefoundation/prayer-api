@@ -206,7 +206,7 @@ export class PrayersService {
       .$if(!!groupId, (eb) => eb.where('group_id', '=', groupId!))
       .$if(!!userId, (eb) => eb.where('user_id', '=', userId!))
       .$if(!!corporateId, (eb) => eb.where('corporate_id', '=', corporateId!))
-      .$if(!!hideAnonymous, (eb) => eb.where('anon', '=', hideAnonymous!))
+      .$if(!!hideAnonymous, (eb) => eb.where('anon', '=', false))
       .$if(requestingUserId == null, (eb) =>
         eb.where((qb) =>
           qb.exists(
@@ -401,7 +401,8 @@ export class PrayersService {
           : null,
         ...rest,
       }))
-      .executeTakeFirst();
+      .returning('prayers.id')
+      .executeTakeFirstOrThrow();
   }
 
   async fetchLatestPrayerPray(prayerId: string, userId: string) {
