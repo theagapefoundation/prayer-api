@@ -24,6 +24,7 @@ import * as moment from 'moment';
 import { StorageService } from 'src/storage/storage.service';
 import { Timezone } from 'src/timezone.guard';
 import {
+  BadRequestError,
   OperationNotAllowedError,
   PrivateGroupError,
   TargetNotFoundError,
@@ -282,6 +283,12 @@ export class PrayersController {
           'You have to be a member of the group to post the prayer',
         );
       }
+    }
+
+    if (!!form.corporateId && !form.groupId) {
+      throw new BadRequestError(
+        'group_id must be not null when corporate_id is given',
+      );
     }
     await this.appService.createPrayer({
       user_id: user.sub,
