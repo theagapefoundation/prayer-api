@@ -46,3 +46,9 @@ export class PrivateGroupError extends BaseError {
     super(message, HttpStatus.FORBIDDEN, 'insufficient-permission');
   }
 }
+
+export class BadRequestError extends BaseError {
+  constructor(message: string) {
+    super(message, HttpStatus.BAD_REQUEST, 'invalid-parameters');
+  }
+}
