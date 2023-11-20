@@ -256,16 +256,24 @@ export class PrayersService {
       .selectFrom('prayer_prays')
       .where('prayer_prays.prayer_id', '=', prayerId)
       .$if(!!cursor, (eb) => eb.where('prayer_prays.id', '=', cursor!))
-      .leftJoin('users', 'users.uid', 'prayer_prays.user_id')
       .orderBy('prayer_prays.created_at desc')
+      .select((eb) =>
+        jsonObjectFrom(
+          eb
+            .selectFrom('users')
+            .whereRef('users.uid', '=', 'prayer_prays.user_id')
+            .select([
+              'users.name',
+              'users.uid',
+              'users.profile',
+              'users.username',
+            ]),
+        ).as('user'),
+      )
       .select([
         'prayer_prays.id',
         'prayer_prays.created_at',
         'prayer_prays.value',
-        'users.name',
-        'users.uid',
-        'users.profile',
-        'users.username',
       ])
       .limit(11)
       .execute();
@@ -510,5 +518,20 @@ export class PrayersService {
       ),
       canPost: data?.accepted_at == null,
     };
+  }
+
+  fetchPrayerPray(prayId: number) {
+    return this.dbService
+      .selectFrom('prayer_prays')
+      .where('prayer_prays.id', '=', prayId)
+      .selectAll()
+      .executeTakeFirst();
+  }
+
+  deletePrayerPray(prayId: number) {
+    return this.dbService
+      .deleteFrom('prayer_prays')
+      .where('prayer_prays.id', '=', prayId)
+      .executeTakeFirst();
   }
 }

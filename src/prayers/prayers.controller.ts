@@ -406,4 +406,23 @@ export class PrayersController {
       return 'false';
     }
   }
+
+  @UseGuards(AuthGuard)
+  @UseInterceptors(ResponseInterceptor)
+  @Delete(':prayerId/pray/:prayId')
+  async deletePrayerPray(
+    @Param('prayerId') prayerId: string,
+    @Param('prayId') prayId: number,
+    @User() user: UserEntity,
+  ) {
+    const data = await this.appService.fetchPrayerPray(prayId);
+    if (data == null) {
+      return 'failed';
+    }
+    if (data.user_id !== user.sub) {
+      throw new OperationNotAllowedError('You can only delete your pray');
+    }
+    await this.appService.deletePrayerPray(prayId);
+    return 'success';
+  }
 }
