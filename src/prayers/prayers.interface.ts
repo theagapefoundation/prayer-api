@@ -49,6 +49,6 @@ export class CreatePrayerDto {
 
 export class CreatePrayerPrayDto {
   @IsOptional()
-  @MaxLength(300)
+  @MaxLength(200)
   value?: string;
 }

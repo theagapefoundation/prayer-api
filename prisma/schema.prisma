@@ -98,7 +98,7 @@ model corporate_prayers {
 model prayer_prays {
   id         Int      @id @unique @default(autoincrement())
   user_id    String   @db.VarChar(40)
-  value      String?  @db.VarChar(300)
+  value      String?  @db.VarChar(200)
   created_at DateTime @db.Timestamptz(6)
   prayer_id  String   @db.Uuid
 }
