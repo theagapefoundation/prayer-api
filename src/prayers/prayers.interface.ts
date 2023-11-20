@@ -48,6 +48,9 @@ export class CreatePrayerDto {
 }
 
 export class CreatePrayerPrayDto {
+  @IsUUID()
+  prayerId: string;
+
   @IsOptional()
   @MaxLength(200)
   value?: string;

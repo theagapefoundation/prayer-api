@@ -323,6 +323,33 @@ export class PrayersService {
     return data.map(({ id }) => id);
   }
 
+  async fetchPrayersPrayedByUser(userId: string, cursor?: string) {
+    const data = await this.dbService
+      .selectFrom('prayers')
+      .select(['prayers.id'])
+      .where((eb) =>
+        eb.exists(
+          eb
+            .selectFrom('prayer_prays')
+            .whereRef('prayer_prays.prayer_id', '=', 'prayers.id')
+            .where('prayer_prays.user_id', '=', userId),
+        ),
+      )
+      .orderBy((eb) =>
+        eb
+          .selectFrom('prayer_prays')
+          .select('prayer_prays.created_at')
+          .orderBy('prayer_prays.created_at desc')
+          .whereRef('prayer_prays.prayer_id', '=', 'prayers.id')
+          .where('prayer_prays.user_id', '=', userId)
+          .limit(1),
+      )
+      .$if(!!cursor, (qb) => qb.where('prayers.id', '=', cursor!))
+      .limit(11)
+      .execute();
+    return data.map(({ id }) => id);
+  }
+
   async fetchPrayerPrays({
     prayerId,
     cursor,

@@ -238,23 +238,6 @@ export class PrayersController {
     return 'success';
   }
 
-  @Get(':prayerId/pray')
-  async fetchPrayerPrays(
-    @Param('prayerId') prayerId: string,
-    @Query('cursor') cursor?: number,
-  ) {
-    const data = await this.appService.fetchPrayerPrays({
-      prayerId,
-      cursor,
-    });
-    const newCursor = data.length < 11 ? null : data.pop();
-    return {
-      createdAt: new Date().toISOString(),
-      data,
-      cursor: newCursor?.id,
-    };
-  }
-
   @Get()
   async fetchRecommendedPrayers(
     @User() user?: UserEntity,
@@ -375,13 +358,43 @@ export class PrayersController {
     return 'success';
   }
 
+  @Get('pray/by/user/:userId')
+  async fetchUserPrays(
+    @Param('userId') userId: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const data = await this.appService.fetchPrayersPrayedByUser(userId, cursor);
+    const newCursor = data.length < 11 ? null : data.pop();
+    return {
+      createdAt: new Date().toISOString(),
+      data,
+      cursor: newCursor,
+    };
+  }
+
+  @Get('pray/by/prayer/:prayerId')
+  async fetchPrayerPrays(
+    @Param('prayerId') prayerId: string,
+    @Query('cursor') cursor?: number,
+  ) {
+    const data = await this.appService.fetchPrayerPrays({
+      prayerId,
+      cursor,
+    });
+    const newCursor = data.length < 11 ? null : data.pop();
+    return {
+      createdAt: new Date().toISOString(),
+      data,
+      cursor: newCursor?.id,
+    };
+  }
+
   @UseGuards(AuthGuard)
   @UseInterceptors(ResponseInterceptor)
-  @Post(':prayerId/pray')
+  @Post('pray')
   async createPrayerPray(
-    @Param('prayerId') prayerId: string,
     @User() user: UserEntity,
-    @Body() body?: CreatePrayerPrayDto,
+    @Body() { prayerId, value }: CreatePrayerPrayDto,
   ) {
     try {
       const data = await this.appService.fetchLatestPrayerPray(
@@ -398,9 +411,9 @@ export class PrayersController {
       await this.appService.createPrayerPray({
         prayerId,
         userId: user.sub,
-        value: body?.value,
+        value,
       });
-      this.firebaseService.prayForUser(prayerId, user.sub, !!body?.value);
+      this.firebaseService.prayForUser(prayerId, user.sub, !!value);
       return 'success';
     } catch (e) {
       return 'false';
@@ -409,9 +422,8 @@ export class PrayersController {
 
   @UseGuards(AuthGuard)
   @UseInterceptors(ResponseInterceptor)
-  @Delete(':prayerId/pray/:prayId')
+  @Delete('pray/:prayId')
   async deletePrayerPray(
-    @Param('prayerId') prayerId: string,
     @Param('prayId') prayId: number,
     @User() user: UserEntity,
   ) {
