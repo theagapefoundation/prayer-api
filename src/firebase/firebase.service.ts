@@ -129,6 +129,43 @@ export class FirebaseService {
     }
   }
 
+  async corporatePrayerCreated({
+    groupId,
+    prayerId,
+    uploaderId,
+  }: {
+    groupId: string;
+    prayerId: string;
+    uploaderId: string;
+  }) {
+    const [{ name }, t, { username }] = await Promise.all([
+      this.dbService
+        .selectFrom('groups')
+        .select('groups.name')
+        .where('groups.id', '=', groupId)
+        .executeTakeFirstOrThrow(),
+      this.dbService
+        .selectFrom('group_members')
+        .select('group_members.user_id')
+        .where('group_members.group_id', '=', groupId)
+        .execute(),
+      this.dbService
+        .selectFrom('users')
+        .select('users.username')
+        .where('users.uid', '=', uploaderId)
+        .executeTakeFirstOrThrow(),
+    ]);
+
+    this.send({
+      userId: t
+        .map(({ user_id }) => user_id)
+        .filter((value) => value !== uploaderId),
+      title: name,
+      body: `${username} has posted a corporate prayer`,
+      data: { corporateId: prayerId },
+    });
+  }
+
   async send(params: {
     userId: string[];
     title: string;

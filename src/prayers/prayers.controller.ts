@@ -338,7 +338,7 @@ export class PrayersController {
         );
       }
     }
-    await this.appService.createCorporatePrayer({
+    const { id } = await this.appService.createCorporatePrayer({
       user_id: user.sub,
       group_id: form.groupId,
       title: form.title,
@@ -353,6 +353,11 @@ export class PrayersController {
           ? null
           : moment(form.endedAt).endOf('day').toDate(),
       created_at: new Date(),
+    });
+    this.firebaseService.corporatePrayerCreated({
+      groupId: form.groupId,
+      uploaderId: user.sub,
+      prayerId: id,
     });
     return 'success';
   }

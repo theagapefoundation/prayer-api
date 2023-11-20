@@ -453,7 +453,8 @@ export class PrayersService {
           .select('groups.id'),
         ...rest,
       }))
-      .executeTakeFirst();
+      .returning('corporate_prayers.id')
+      .executeTakeFirstOrThrow();
   }
 
   async fetchJoinStatusFromPrayer(prayerId: string, userId?: string) {
