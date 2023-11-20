@@ -166,6 +166,92 @@ export class FirebaseService {
     });
   }
 
+  async prayerCreated({
+    corporateId,
+    groupId,
+    prayerId,
+    userId,
+  }: {
+    corporateId?: string;
+    groupId?: string;
+    prayerId: string;
+    userId: string;
+  }) {
+    if (corporateId) {
+      const [{ user_id, title }, { username }, users] = await Promise.all([
+        this.dbService
+          .selectFrom('corporate_prayers')
+          .select(['corporate_prayers.user_id', 'corporate_prayers.title'])
+          .where('corporate_prayers.id', '=', corporateId)
+          .executeTakeFirstOrThrow(),
+        this.dbService
+          .selectFrom('users')
+          .select(['users.username'])
+          .where('users.uid', '=', userId)
+          .executeTakeFirstOrThrow(),
+        this.dbService
+          .selectFrom('prayers')
+          .select('prayers.user_id')
+          .where('prayers.corporate_id', '=', corporateId)
+          .execute(),
+      ]);
+      const target = [user_id, ...users.map(({ user_id }) => user_id)].filter(
+        (value) => value !== userId,
+      );
+      this.send({
+        userId: target,
+        title: title,
+        body: `${username} has posted a prayer`,
+        data: { prayerId },
+      });
+    } else if (groupId) {
+      const [{ name }, members, { username }] = await Promise.all([
+        this.dbService
+          .selectFrom('groups')
+          .where('groups.id', '=', groupId)
+          .select('groups.name')
+          .executeTakeFirstOrThrow(),
+        this.dbService
+          .selectFrom('group_members')
+          .where('group_members.group_id', '=', groupId)
+          .select('group_members.user_id')
+          .execute(),
+        this.dbService
+          .selectFrom('users')
+          .select('users.username')
+          .where('users.uid', '=', userId)
+          .executeTakeFirstOrThrow(),
+      ]);
+      this.send({
+        userId: members
+          .map(({ user_id }) => user_id)
+          .filter((value) => value !== userId),
+        title: name,
+        body: `${username} has posted a corporate prayer`,
+        data: { prayerId },
+      });
+    } else {
+      const [followings, { username }] = await Promise.all([
+        this.dbService
+          .selectFrom('user_follows')
+          .select('user_follows.following_id')
+          .where('user_follows.follower_id', '=', userId)
+          .execute(),
+        this.dbService
+          .selectFrom('users')
+          .select('users.username')
+          .where('users.uid', '=', userId)
+          .executeTakeFirstOrThrow(),
+      ]);
+      this.send({
+        userId: followings.map(({ following_id }) => following_id),
+        title: 'Prayer',
+        body: `${username} has posted a corporate prayer`,
+        data: { corporateId: prayerId },
+      });
+    }
+  }
+
   async send(params: {
     userId: string[];
     title: string;

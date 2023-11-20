@@ -290,13 +290,19 @@ export class PrayersController {
         'group_id must be not null when corporate_id is given',
       );
     }
-    await this.appService.createPrayer({
+    const { id } = await this.appService.createPrayer({
       user_id: user.sub,
       group_id: form.groupId,
       corporate_id: form.corporateId,
       anon: form.anon,
       value: form.value,
       media: form.media,
+    });
+    this.firebaseService.prayerCreated({
+      corporateId: form.corporateId,
+      groupId: form.groupId,
+      userId: user.sub,
+      prayerId: id,
     });
     return 'success';
   }
