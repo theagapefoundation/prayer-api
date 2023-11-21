@@ -177,10 +177,4 @@ export class UsersController {
       cursor: newCursor,
     };
   }
-
-  @UseInterceptors(ResponseInterceptor)
-  @Get(':userId/groups')
-  async fetchUserGroups(@Param('userId') userId: string) {
-    return this.appService.fetchUserGroups(userId);
-  }
 }

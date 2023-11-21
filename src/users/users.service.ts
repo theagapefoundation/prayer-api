@@ -243,16 +243,6 @@ export class UsersService {
       .executeTakeFirstOrThrow();
   }
 
-  async fetchUserGroups(userId: string) {
-    const data = await this.dbService
-      .selectFrom('group_members')
-      .where('user_id', '=', userId)
-      .select('group_id')
-      .distinct()
-      .execute();
-    return data.map(({ group_id }) => group_id);
-  }
-
   async createNewFcmTokens(userId: string, value: string) {
     return this.dbService
       .insertInto('user_fcm_tokens')
