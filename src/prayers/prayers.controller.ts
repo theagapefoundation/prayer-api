@@ -227,11 +227,11 @@ export class PrayersController {
       prayerId,
       userId: user.sub,
     });
+    if (data == null) {
+      throw new TargetNotFoundError('Unable to find a prayer');
+    }
     if (data.user_id !== user.sub) {
-      throw new HttpException(
-        'Only owner can delete the post',
-        HttpStatus.FORBIDDEN,
-      );
+      throw new OperationNotAllowedError('Only owner can delete the post');
     }
     if (data.media) {
       this.storageService.removeFile(data.media);

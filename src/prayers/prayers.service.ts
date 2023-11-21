@@ -149,6 +149,12 @@ export class PrayersService {
         ).as('corporate'),
       )
       .executeTakeFirst();
+    if (data == null) {
+      return data;
+    }
+    if (data.user?.profile) {
+      data.user.profile = this.storageService.getPublicUrl(data.user.profile);
+    }
     return {
       ...data,
       media: data?.media
