@@ -44,6 +44,13 @@ export class GroupController {
     @Body() { value }: JoinGroupDto,
   ) {
     try {
+      const data = await this.appService.fetchGroup(groupId);
+      if (data == null) {
+        throw new TargetNotFoundError('Unable to find the group to join');
+      }
+      if (data.admin_id === user.sub) {
+        throw new OperationNotAllowedError('Admin cannot leave the group');
+      }
       if (value === 'true') {
         const { accepted_at } = await this.appService.joinGroup({
           groupId,
@@ -51,13 +58,6 @@ export class GroupController {
         });
         this.firebaseSerivce.joinGroup(groupId, user.sub);
         return accepted_at;
-      }
-      const data = await this.appService.fetchGroup(groupId);
-      if (data == null) {
-        throw new TargetNotFoundError('Unable to find the group to join');
-      }
-      if (data.admin_id === user.sub) {
-        throw new OperationNotAllowedError('Admin cannot leave the group');
       }
       await this.appService.leaveGroup({ groupId, userId: user.sub });
       return 'success';
