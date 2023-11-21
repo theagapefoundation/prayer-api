@@ -102,6 +102,22 @@ export class UsersService {
               .as('value'),
           )
           .as('followings_count'),
+        selectFrom('prayers')
+          .whereRef('prayers.user_id', '=', 'users.uid')
+          .select(({ fn }) =>
+            fn
+              .coalesce(fn.count<string>('prayers.id'), sql<string>`0`)
+              .as('value'),
+          )
+          .as('prayers_count'),
+        selectFrom('prayer_prays')
+          .whereRef('prayer_prays.user_id', '=', 'users.uid')
+          .select(({ fn }) =>
+            fn
+              .coalesce(fn.count<string>('prayer_prays.id'), sql<string>`0`)
+              .as('value'),
+          )
+          .as('prays_count'),
       ])
       .executeTakeFirst();
     if (data == null) {
@@ -114,6 +130,8 @@ export class UsersService {
       banner,
       followers_count: parseInt(data.followers_count ?? '10', 10),
       followings_count: parseInt(data.followings_count ?? '10', 10),
+      prayers_count: parseInt(data.prayers_count ?? '10', 10),
+      prays_count: parseInt(data.prays_count ?? '10', 10),
     };
   }
 
