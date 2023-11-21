@@ -249,7 +249,7 @@ export class FirebaseService {
           .map(({ user_id }) => user_id)
           .filter((value) => value !== userId),
         title: name,
-        body: `${username} has posted a corporate prayer`,
+        body: `${username} has posted a prayer`,
         data: { prayerId },
       });
     } else {
@@ -268,7 +268,7 @@ export class FirebaseService {
       this.send({
         userId: followings.map(({ following_id }) => following_id),
         title: 'Prayer',
-        body: `${username} has posted a corporate prayer`,
+        body: `${username} has posted a prayer`,
         data: { corporateId: prayerId },
       });
     }
