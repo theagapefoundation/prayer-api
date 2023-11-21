@@ -363,7 +363,7 @@ export class PrayersService {
     prayerId: string;
     cursor?: number;
   }) {
-    return this.dbService
+    const data = await this.dbService
       .selectFrom('prayer_prays')
       .where('prayer_prays.prayer_id', '=', prayerId)
       .$if(!!cursor, (eb) => eb.where('prayer_prays.id', '=', cursor!))
@@ -388,6 +388,12 @@ export class PrayersService {
       ])
       .limit(11)
       .execute();
+    data.forEach((d) => {
+      if (d.user?.profile) {
+        d.user.profile = this.storageService.getPublicUrl(d.user.profile);
+      }
+    });
+    return data;
   }
 
   async fetchPrayersByUserGroup({
