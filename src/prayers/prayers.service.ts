@@ -16,43 +16,34 @@ export class PrayersService {
     const data = await this.dbService
       .selectFrom('corporate_prayers')
       .where('corporate_prayers.id', '=', prayerId)
+      .leftJoin('users', 'corporate_prayers.user_id', 'users.uid')
+      .leftJoin('prayers', 'corporate_prayers.id', 'prayers.corporate_id')
+      .leftJoin('groups', 'corporate_prayers.group_id', 'groups.id')
       .selectAll(['corporate_prayers'])
-      .select(({ selectFrom }) =>
-        selectFrom('prayers')
-          .whereRef('prayers.corporate_id', '=', 'corporate_prayers.id')
-          .select(({ fn }) =>
-            fn
-              .coalesce(fn.count<string>('prayers.id'), sql<string>`0`)
-              .as('value'),
-          )
+      .groupBy(['corporate_prayers.id', 'users.uid', 'groups.id'])
+      .select(({ fn }) =>
+        fn
+          .coalesce(fn.count<string>('prayers.id'), sql<string>`0`)
           .as('prayers_count'),
       )
-      .select((eb) =>
+      .select((eb) => [
         jsonObjectFrom(
-          eb
-            .selectFrom('users')
-            .select([
-              'users.profile',
-              'users.uid',
-              'users.name',
-              'users.username',
-            ])
-            .whereRef('users.uid', '=', 'corporate_prayers.user_id'),
+          eb.selectNoFrom([
+            'users.username',
+            'users.name',
+            'users.uid',
+            'users.profile',
+          ]),
         ).as('user'),
-      )
-      .select((eb) =>
         jsonObjectFrom(
-          eb
-            .selectFrom('groups')
-            .select([
-              'groups.id',
-              'groups.name',
-              'groups.admin_id',
-              'groups.membership_type',
-            ])
-            .whereRef('groups.id', '=', 'corporate_prayers.group_id'),
+          eb.selectNoFrom([
+            'groups.id',
+            'groups.name',
+            'groups.admin_id',
+            'groups.membership_type',
+          ]),
         ).as('group'),
-      )
+      ])
       .executeTakeFirst();
     if (data == null) {
       return data;
@@ -76,43 +67,35 @@ export class PrayersService {
     const data = await this.dbService
       .selectFrom('prayers')
       .where('prayers.id', '=', prayerId)
-      .selectAll()
-      .select((eb) =>
+      .leftJoin('users', 'prayers.user_id', 'users.uid')
+      .leftJoin('prayer_prays', 'prayers.id', 'prayer_prays.prayer_id')
+      .leftJoin('groups', 'prayers.group_id', 'groups.id')
+      .leftJoin(
+        'corporate_prayers',
+        'prayers.corporate_id',
+        'corporate_prayers.id',
+      )
+      .groupBy(['prayers.id', 'users.uid', 'groups.id', 'corporate_prayers.id'])
+      .selectAll(['prayers'])
+      .select(({ fn }) => [
+        fn
+          .coalesce(fn.count<string>('prayer_prays.id'), sql<string>`0`)
+          .as('prays_count'),
+        fn.max('prayer_prays.created_at').as('has_prayed'),
+      ])
+      .select((eb) => [
+        jsonObjectFrom(
+          eb.selectNoFrom([
+            'users.uid',
+            'users.name',
+            'users.username',
+            'users.profile',
+          ]),
+        ).as('user'),
         jsonObjectFrom(
           eb
-            .selectFrom('users')
-            .select([
-              'users.profile',
-              'users.uid',
-              'users.name',
-              'users.username',
-            ])
-            .whereRef('users.uid', '=', 'prayers.user_id'),
-        ).as('user'),
-      )
-      .select(({ selectFrom }) =>
-        selectFrom('prayer_prays')
-          .whereRef('prayer_prays.prayer_id', '=', 'prayers.id')
-          .select(({ fn }) =>
-            fn
-              .coalesce(fn.count<string>('prayer_prays.id'), sql<string>`0`)
-              .as('value'),
-          )
-          .as('prays_count'),
-      )
-      .select(({ selectFrom }) =>
-        selectFrom('prayer_prays')
-          .whereRef('prayer_prays.prayer_id', '=', 'prayers.id')
-          .select(['prayer_prays.created_at'])
-          .orderBy('prayer_prays.created_at desc')
-          .limit(1)
-          .as('has_prayed'),
-      )
-      .select(({ selectFrom }) =>
-        jsonObjectFrom(
-          selectFrom('prayer_prays')
-            .whereRef('prayer_prays.prayer_id', '=', 'prayers.id')
-            .leftJoin('users', 'users.uid', 'prayer_prays.user_id')
+            .selectFrom('prayer_prays')
+            .leftJoin('users', 'prayer_prays.user_id', 'users.uid')
             .select([
               'users.uid',
               'users.profile',
@@ -120,40 +103,52 @@ export class PrayersService {
               'users.name',
               'prayer_prays.created_at',
             ])
-            .orderBy('created_at desc')
+            .whereRef('prayer_prays.prayer_id', '=', 'prayers.id')
+            .orderBy('prayer_prays.created_at desc')
             .limit(1),
         ).as('pray'),
-      )
-      .select(({ selectFrom }) =>
-        jsonObjectFrom(
-          selectFrom('groups')
-            .whereRef('groups.id', '=', 'prayers.group_id')
-            .select([
-              'groups.id',
-              'groups.name',
-              'groups.admin_id',
-              'groups.membership_type',
-            ]),
-        ).as('group'),
-      )
-      .select(({ selectFrom }) =>
-        jsonObjectFrom(
-          selectFrom('corporate_prayers')
-            .whereRef('corporate_prayers.id', '=', 'prayers.corporate_id')
-            .select([
-              'corporate_prayers.id',
-              'corporate_prayers.title',
-              'corporate_prayers.user_id',
-              'corporate_prayers.group_id',
-            ]),
-        ).as('corporate'),
-      )
+        eb
+          .case()
+          .when('groups.id', 'is not', null)
+          .then(
+            jsonObjectFrom(
+              eb.selectNoFrom([
+                'groups.id',
+                'groups.name',
+                'groups.admin_id',
+                'groups.membership_type',
+              ]),
+            ),
+          )
+          .else(null)
+          .end()
+          .as('group'),
+        eb
+          .case()
+          .when('corporate_prayers.id', 'is not', null)
+          .then(
+            jsonObjectFrom(
+              eb.selectNoFrom([
+                'corporate_prayers.id',
+                'corporate_prayers.title',
+                'corporate_prayers.user_id',
+                'corporate_prayers.group_id',
+              ]),
+            ),
+          )
+          .else(null)
+          .end()
+          .as('corporate'),
+      ])
       .executeTakeFirst();
     if (data == null) {
       return data;
     }
     if (data.user?.profile) {
       data.user.profile = this.storageService.getPublicUrl(data.user.profile);
+    }
+    if (data.pray?.profile) {
+      data.pray.profile = this.storageService.getPublicUrl(data.pray.profile);
     }
     return {
       ...data,
@@ -329,26 +324,42 @@ export class PrayersService {
     return data.map(({ id }) => id);
   }
 
-  async fetchPrayersPrayedByUser(userId: string, cursor?: string) {
+  async fetchPrayersPrayedByUser({
+    userId,
+    cursor,
+    requestingUserId,
+  }: {
+    userId: string;
+    cursor?: string;
+    requestingUserId?: string;
+  }) {
     const data = await this.dbService
       .selectFrom('prayers')
       .select(['prayers.id'])
-      .where((eb) =>
-        eb.exists(
-          eb
-            .selectFrom('prayer_prays')
-            .whereRef('prayer_prays.prayer_id', '=', 'prayers.id')
-            .where('prayer_prays.user_id', '=', userId),
+      .leftJoin('prayer_prays', 'prayers.id', 'prayer_prays.prayer_id')
+      .leftJoin('groups', 'prayers.group_id', 'groups.id')
+      .leftJoin('group_members', 'group_members.group_id', 'groups.id')
+      .where('prayer_prays.user_id', '=', userId)
+      .select((eb) => eb.fn.max('prayer_prays.created_at').as('latest_pray'))
+      .groupBy('prayers.id')
+      .orderBy('latest_pray desc')
+      .$if(!requestingUserId, (qb) =>
+        qb.where(({ not, exists, eb }) =>
+          not(exists(eb('groups.membership_type', '=', 'private'))),
         ),
       )
-      .orderBy((eb) =>
-        eb
-          .selectFrom('prayer_prays')
-          .select('prayer_prays.created_at')
-          .orderBy('prayer_prays.created_at desc')
-          .whereRef('prayer_prays.prayer_id', '=', 'prayers.id')
-          .where('prayer_prays.user_id', '=', userId)
-          .limit(1),
+      .$if(!!requestingUserId, (qb) =>
+        qb.where((eb) =>
+          eb.not(
+            eb.exists(
+              eb
+                .selectNoFrom('group_members.id')
+                .where('group_members.user_id', '=', requestingUserId!)
+                .where('groups.membership_type', '=', 'private')
+                .where('group_members.accepted_at', 'is', null),
+            ),
+          ),
+        ),
       )
       .$if(!!cursor, (qb) => qb.where('prayers.id', '=', cursor!))
       .limit(11)
@@ -366,19 +377,17 @@ export class PrayersService {
     const data = await this.dbService
       .selectFrom('prayer_prays')
       .where('prayer_prays.prayer_id', '=', prayerId)
+      .leftJoin('users', 'users.uid', 'prayer_prays.user_id')
       .$if(!!cursor, (eb) => eb.where('prayer_prays.id', '=', cursor!))
       .orderBy('prayer_prays.created_at desc')
       .select((eb) =>
         jsonObjectFrom(
-          eb
-            .selectFrom('users')
-            .whereRef('users.uid', '=', 'prayer_prays.user_id')
-            .select([
-              'users.name',
-              'users.uid',
-              'users.profile',
-              'users.username',
-            ]),
+          eb.selectNoFrom([
+            'users.uid',
+            'users.name',
+            'users.username',
+            'users.profile',
+          ]),
         ).as('user'),
       )
       .select([
@@ -417,14 +426,6 @@ export class PrayersService {
         ),
       )
       .orderBy('prayers.created_at desc')
-      .orderBy((eb) =>
-        eb
-          .selectFrom('prayer_prays')
-          .whereRef('prayer_prays.prayer_id', '=', 'prayers.id')
-          .orderBy('prayer_prays.created_at desc')
-          .select('prayer_prays.created_at')
-          .limit(1),
-      )
       .$if(!!cursor, (eb) => eb.where('prayers.id', '=', cursor!))
       .select(['id'])
       .limit(11)
@@ -608,16 +609,12 @@ export class PrayersService {
     const data = await this.dbService
       .selectFrom('prayers')
       .leftJoin('groups', 'prayers.group_id', 'groups.id')
+      .leftJoin('group_members', 'prayers.group_id', 'group_members.group_id')
       .where('prayers.id', '=', prayerId)
       .$if(!!userId, (qb) =>
-        qb.select((eb) =>
-          eb
-            .selectFrom('group_members')
-            .whereRef('prayers.group_id', '=', 'group_members.group_id')
-            .where('group_members.user_id', '=', userId!)
-            .select('group_members.accepted_at')
-            .as('accepted_at'),
-        ),
+        qb
+          .where('group_members.user_id', '=', userId!)
+          .select('group_members.accepted_at'),
       )
       .select(['groups.membership_type'])
       .executeTakeFirst();
@@ -633,20 +630,12 @@ export class PrayersService {
     const data = await this.dbService
       .selectFrom('corporate_prayers')
       .leftJoin('groups', 'corporate_prayers.group_id', 'groups.id')
+      .leftJoin('group_members', 'group_members.group_id', 'groups.id')
       .where('corporate_prayers.id', '=', prayerId)
       .$if(!!userId, (qb) =>
-        qb.select((eb) =>
-          eb
-            .selectFrom('group_members')
-            .whereRef(
-              'group_members.group_id',
-              '=',
-              'corporate_prayers.group_id',
-            )
-            .where('group_members.user_id', '=', userId!)
-            .select('group_members.accepted_at')
-            .as('accepted_at'),
-        ),
+        qb
+          .where('group_members.user_id', '=', userId!)
+          .select('group_members.accepted_at'),
       )
       .select(['groups.membership_type'])
       .executeTakeFirst();

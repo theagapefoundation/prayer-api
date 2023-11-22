@@ -18,59 +18,55 @@ export class GroupsService {
     const data = await this.dbService
       .selectFrom('groups')
       .where('groups.id', '=', groupId)
-      .select(({ selectFrom }) =>
-        selectFrom('group_members')
-          .whereRef('group_members.group_id', '=', 'groups.id')
-          .where('accepted_at', 'is not', null)
-          .select(({ fn }) =>
-            fn
-              .coalesce(fn.count<string>('group_members.id'), sql<string>`0`)
-              .as('value'),
+      .leftJoin('users as admin', 'admin.uid', 'groups.admin_id')
+      .leftJoin('group_members as members', 'members.group_id', 'groups.id')
+      .leftJoin('prayers', 'prayers.group_id', 'groups.id')
+      .where('members.accepted_at', 'is not', null)
+      .selectAll(['groups'])
+      .select(({ fn }) => [
+        fn
+          .coalesce(
+            fn.count<string>(sql`DISTINCT members.user_id`),
+            sql<string>`0`,
           )
           .as('members_count'),
-      )
-      .select(({ selectFrom }) =>
-        selectFrom('prayers')
-          .whereRef('prayers.group_id', '=', 'groups.id')
-          .select(({ fn }) =>
-            fn
-              .coalesce(fn.count<string>('prayers.id'), sql<string>`0`)
-              .as('value'),
-          )
+        fn
+          .coalesce(fn.count<string>(sql`DISTINCT prayers.id`), sql<string>`0`)
           .as('prayers_count'),
-      )
+      ])
+      .groupBy(['groups.id', 'admin.uid'])
       .select((eb) =>
         jsonObjectFrom(
-          eb
-            .selectFrom('users')
-            .select([
-              'users.profile',
-              'users.uid',
-              'users.name',
-              'users.username',
-            ])
-            .whereRef('users.uid', '=', 'groups.admin_id'),
+          eb.selectNoFrom([
+            'admin.uid',
+            'admin.name',
+            'admin.profile',
+            'admin.username',
+          ]),
         ).as('admin'),
       )
-      .selectAll(['groups'])
       .$if(!!userId, (eb) =>
-        eb.select(({ selectFrom }) => [
-          selectFrom('group_members')
-            .whereRef('group_members.group_id', '=', 'groups.id')
-            .where('group_members.user_id', '=', userId!)
-            .select('group_members.created_at')
-            .as('joined_at'),
-          selectFrom('group_members')
-            .whereRef('group_members.group_id', '=', 'groups.id')
-            .where('group_members.user_id', '=', userId!)
-            .select('group_members.accepted_at')
-            .as('accepted_at'),
-          selectFrom('group_members')
-            .whereRef('group_members.group_id', '=', 'groups.id')
-            .where('group_members.user_id', '=', userId!)
-            .select('group_members.moderator')
-            .as('moderator'),
-        ]),
+        eb
+          .leftJoin(
+            ({ selectFrom }) =>
+              selectFrom('group_members')
+                .select([
+                  'group_members.group_id',
+                  'group_members.created_at as joined_at',
+                  'group_members.moderator',
+                  'group_members.accepted_at',
+                ])
+                .where('group_members.user_id', '=', userId!)
+                .as('user'),
+            (join) => join.onRef('user.group_id', '=', 'groups.id'),
+          )
+          .groupBy([
+            'user.group_id',
+            'user.joined_at',
+            'user.moderator',
+            'user.accepted_at',
+          ])
+          .selectAll('user'),
       )
       .executeTakeFirst();
     if (data == null) {
@@ -102,6 +98,9 @@ export class GroupsService {
   }) {
     const data = await this.dbService
       .selectFrom('groups')
+      .leftJoin('users as admin', 'admin.uid', 'groups.admin_id')
+      .leftJoin('group_members', 'group_members.group_id', 'groups.id')
+      .groupBy(['groups.id', 'admin.uid'])
       .$if(!!query, (qb) =>
         qb.where((eb) =>
           eb.or([
@@ -110,39 +109,45 @@ export class GroupsService {
           ]),
         ),
       )
-      .$if(!!cursor, (eb) => eb.where('id', '=', cursor!))
+      .$if(!!cursor, (eb) => eb.where('groups.id', '=', cursor!))
       .$if(!!userId, (eb) =>
-        eb.where(({ exists }) =>
-          exists(({ selectFrom }) =>
-            selectFrom('group_members')
-              .whereRef('group_members.group_id', '=', 'groups.id')
-              .where('group_members.user_id', '=', userId!),
-          ),
-        ),
+        eb
+          .where('group_members.user_id', '=', userId!)
+          .where('group_members.accepted_at', 'is not', null),
       )
-      .orderBy('created_at desc')
+      .orderBy('groups.created_at desc')
       .select((eb) =>
         jsonObjectFrom(
-          eb
-            .selectFrom('users')
-            .whereRef('users.uid', '=', 'groups.admin_id')
-            .select([
-              'users.uid',
-              'users.username',
-              'users.profile',
-              'users.name',
-            ]),
+          eb.selectNoFrom([
+            'admin.uid',
+            'admin.username',
+            'admin.profile',
+            'admin.name',
+          ]),
         ).as('admin'),
       )
-      .select(['id', 'name', 'admin_id', 'membership_type', 'banner'])
+      .select((eb) =>
+        eb.fn
+          .coalesce(eb.fn.count<string>('group_members.id'), sql<string>`0`)
+          .as('members_count'),
+      )
+      .select([
+        'groups.id',
+        'groups.name',
+        'groups.admin_id',
+        'groups.membership_type',
+        'groups.banner',
+      ])
       .limit(11)
       .execute();
     data.forEach((d) => {
+      d.banner = this.storageService.publicBucket.file(d.banner).publicUrl();
       if (d.admin?.profile) {
         d.admin.profile = this.storageService.publicBucket
           .file(d.admin.profile)
           .publicUrl();
       }
+      (d.members_count as unknown) = parseInt(d.members_count, 10);
     });
     return data;
   }
