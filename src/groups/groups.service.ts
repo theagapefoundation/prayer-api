@@ -152,7 +152,7 @@ export class GroupsService {
     description: string;
     admin: string;
     membershipType: 'open' | 'restricted' | 'private';
-    banner?: string;
+    banner: string;
   }) {
     const newId = v4();
     await this.dbService.transaction().execute(async (trx) => {
@@ -165,7 +165,7 @@ export class GroupsService {
             admin_id: body.admin,
             description: body.description,
             membership_type: body.membershipType,
-            banner: body.banner,
+            banner: body.banner!,
           })
           .executeTakeFirst(),
         trx
@@ -186,14 +186,14 @@ export class GroupsService {
     groupId: string;
     name?: string;
     description?: string;
-    banner?: string | null;
+    banner?: string;
   }) {
     const { banner } = await this.dbService
       .selectFrom('groups')
       .where('groups.id', '=', body.groupId)
       .select(['banner'])
       .executeTakeFirstOrThrow();
-    if (body.banner !== undefined && banner != null) {
+    if (body.banner !== undefined) {
       this.storageService.publicBucket
         .file(banner)
         .delete({ ignoreNotFound: true });

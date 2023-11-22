@@ -79,7 +79,7 @@ export class GroupsController {
     await this.appService.updateGroup({
       name: body.name,
       description: body.description,
-      banner: body.banner === '' ? null : body.banner,
+      banner: body.banner,
       groupId,
     });
     return this.appService.fetchGroup(groupId, user?.sub);

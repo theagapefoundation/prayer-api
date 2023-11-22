@@ -46,8 +46,8 @@ model user_follows {
   following_id String   @db.VarChar(40)
   created_at   DateTime @default(now()) @db.Timestamptz(6)
 
-  @@unique([follower_id, following_id])
   @@index([follower_id, following_id])
+  @@unique([follower_id, following_id])
 }
 
 model groups {
@@ -55,7 +55,7 @@ model groups {
   name            String          @db.VarChar(30)
   description     String          @db.VarChar(300)
   admin_id        String          @db.VarChar(40)
-  banner          String?         @db.VarChar(255)
+  banner          String          @db.VarChar(255)
   membership_type membership_type
   updated_at      DateTime        @default(now()) @db.Timestamptz(6)
   created_at      DateTime        @default(now()) @db.Timestamptz(6)
@@ -69,6 +69,7 @@ model group_members {
   moderator   DateTime? @db.Timestamptz(6)
   created_at  DateTime  @default(now()) @db.Timestamptz(6)
 
+  @@index([user_id, group_id])
   @@unique([user_id, group_id])
 }
 

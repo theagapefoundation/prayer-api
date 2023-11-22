@@ -40,7 +40,7 @@ export type groups = {
   name: string;
   description: string;
   admin_id: string;
-  banner: string | null;
+  banner: string;
   membership_type: membership_type;
   updated_at: Generated<Timestamp>;
   created_at: Generated<Timestamp>;
