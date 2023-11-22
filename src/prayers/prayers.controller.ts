@@ -426,8 +426,13 @@ export class PrayersController {
   async fetchUserPrays(
     @Param('userId') userId: string,
     @Query('cursor') cursor?: string,
+    @User() user?: UserEntity,
   ) {
-    const data = await this.appService.fetchPrayersPrayedByUser(userId, cursor);
+    const data = await this.appService.fetchPrayersPrayedByUser({
+      userId,
+      cursor,
+      requestingUserId: user?.sub,
+    });
     const newCursor = data.length < 11 ? null : data.pop();
     return {
       createdAt: new Date().toISOString(),
