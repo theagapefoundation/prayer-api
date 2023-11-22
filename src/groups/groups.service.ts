@@ -50,7 +50,7 @@ export class GroupsService {
               'users.username',
             ])
             .whereRef('users.uid', '=', 'groups.admin_id'),
-        ).as('user'),
+        ).as('admin'),
       )
       .selectAll(['groups'])
       .$if(!!userId, (eb) =>
@@ -79,9 +79,9 @@ export class GroupsService {
     if (data.banner != null) {
       (data.banner as string) = this.storageService.getPublicUrl(data.banner);
     }
-    if (data.user?.profile) {
-      data.user.profile = this.storageService.publicBucket
-        .file(data.user.profile)
+    if (data.admin?.profile) {
+      data.admin.profile = this.storageService.publicBucket
+        .file(data.admin.profile)
         .publicUrl();
     }
     return {
@@ -121,10 +121,30 @@ export class GroupsService {
         ),
       )
       .orderBy('created_at desc')
-      .select(['id'])
+      .select((eb) =>
+        jsonObjectFrom(
+          eb
+            .selectFrom('users')
+            .whereRef('users.uid', '=', 'groups.admin_id')
+            .select([
+              'users.uid',
+              'users.username',
+              'users.profile',
+              'users.name',
+            ]),
+        ).as('admin'),
+      )
+      .select(['id', 'name', 'admin_id', 'membership_type', 'banner'])
       .limit(11)
       .execute();
-    return data.map(({ id }) => id);
+    data.forEach((d) => {
+      if (d.admin?.profile) {
+        d.admin.profile = this.storageService.publicBucket
+          .file(d.admin.profile)
+          .publicUrl();
+      }
+    });
+    return data;
   }
 
   async createGroup(body: {
@@ -307,11 +327,16 @@ export class GroupsService {
   async deleteGroup(groupId: string) {
     const files: string[] = [];
     await this.dbService.transaction().execute(async (trx) => {
-      const [banners, _, __, medias] = await Promise.all([
+      const [banners, medias] = await Promise.all([
         trx
           .deleteFrom('groups')
           .where('groups.id', '=', groupId)
           .returning('groups.banner')
+          .execute(),
+        trx
+          .deleteFrom('prayers')
+          .where('prayers.group_id', '=', groupId)
+          .returning('prayers.media')
           .execute(),
         trx
           .deleteFrom('group_members')
@@ -320,11 +345,6 @@ export class GroupsService {
         trx
           .deleteFrom('corporate_prayers')
           .where('corporate_prayers.group_id', '=', groupId)
-          .execute(),
-        trx
-          .deleteFrom('prayers')
-          .where('prayers.group_id', '=', groupId)
-          .returning('prayers.media')
           .execute(),
       ]);
       files.push(

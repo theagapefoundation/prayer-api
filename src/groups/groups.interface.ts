@@ -18,9 +18,8 @@ export class CreateGroupDto {
   @IsIn(['open', 'private', 'restricted'])
   membershipType: 'open' | 'private' | 'restricted';
 
-  @IsOptional()
   @IsNotEmpty()
-  banner?: string;
+  banner: string;
 }
 
 export class UpdateGroupDto {

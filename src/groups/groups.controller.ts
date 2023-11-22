@@ -46,7 +46,7 @@ export class GroupsController {
     return {
       createdAt: new Date().toISOString(),
       data,
-      cursor: newCursor,
+      cursor: newCursor?.id,
     };
   }
 
