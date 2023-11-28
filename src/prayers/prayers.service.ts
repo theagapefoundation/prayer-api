@@ -656,9 +656,11 @@ export class PrayersService {
     reminders,
     ...rest
   }: InsertObject<DB, 'corporate_prayers'> & {
-    reminders?: Omit<InsertObject<DB, 'reminders'>, 'corporate_id'>;
+    reminders?: Omit<InsertObject<DB, 'reminders'>, 'corporate_id'> | null;
   }) {
-    let remindersId: number | undefined;
+    console.log({ reminders });
+    let remindersId: number | undefined | null =
+      reminders === null ? null : undefined;
     return this.dbService.transaction().execute(async (trx) => {
       if (reminders?.days && reminders.time && reminders.value) {
         const { id: _remindersId } = await trx
@@ -672,6 +674,19 @@ export class PrayersService {
           .executeTakeFirstOrThrow();
         remindersId = _remindersId;
       }
+      if (rest.id != null) {
+        const { reminder_id } = await trx
+          .selectFrom('corporate_prayers')
+          .select('corporate_prayers.reminder_id')
+          .where('corporate_prayers.id', '=', rest.id as string)
+          .executeTakeFirstOrThrow();
+        if (reminder_id != null) {
+          trx
+            .deleteFrom('reminders')
+            .where('reminders.id', '=', reminder_id)
+            .executeTakeFirst();
+        }
+      }
       const { id } = await trx
         .insertInto('corporate_prayers')
         .values((eb) => ({
@@ -683,6 +698,7 @@ export class PrayersService {
             .selectFrom('groups')
             .where('groups.id', '=', group_id)
             .select('groups.id'),
+          reminder_id: remindersId,
           ...rest,
         }))
         .onConflict((oc) =>
