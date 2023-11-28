@@ -46,8 +46,8 @@ model user_follows {
   following_id String   @db.VarChar(40)
   created_at   DateTime @default(now()) @db.Timestamptz(6)
 
-  @@index([follower_id, following_id])
   @@unique([follower_id, following_id])
+  @@index([follower_id, following_id])
 }
 
 model groups {
@@ -69,8 +69,8 @@ model group_members {
   moderator   DateTime? @db.Timestamptz(6)
   created_at  DateTime  @default(now()) @db.Timestamptz(6)
 
-  @@index([user_id, group_id])
   @@unique([user_id, group_id])
+  @@index([user_id, group_id])
 }
 
 model prayers {
@@ -89,11 +89,12 @@ model corporate_prayers {
   user_id     String    @db.VarChar(40)
   group_id    String    @db.Uuid
   description String?   @db.VarChar(300)
-  started_at  DateTime? @db.Timestamp(6)
-  ended_at    DateTime? @db.Timestamp(6)
+  started_at  DateTime? @db.Date
+  ended_at    DateTime? @db.Date
   created_at  DateTime  @default(now()) @db.Timestamptz(6)
   title       String    @db.VarChar(30)
   prayers     String?   @db.VarChar(2500)
+  reminder_id Int?      @db.Integer
 }
 
 model prayer_prays {
@@ -102,6 +103,35 @@ model prayer_prays {
   value      String?  @db.VarChar(200)
   created_at DateTime @db.Timestamptz(6)
   prayer_id  String   @db.Uuid
+}
+
+model reminders {
+  id         Int      @id @unique @default(autoincrement())
+  days       String   @db.VarChar(100)
+  time       DateTime @db.Timetz()
+  value      String   @db.VarChar(100)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model group_invitations {
+  id         Int      @id @unique @default(autoincrement())
+  user_id    String   @db.VarChar(40)
+  group_id   String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([user_id, group_id])
+  @@index([user_id, group_id])
+}
+
+model notifications {
+  id             Int      @id @unique @default(autoincrement())
+  user_id        String   @db.VarChar(40)
+  message        String   @db.VarChar(100)
+  group_id       String?  @db.Uuid
+  prayer_id      String?  @db.Uuid
+  corporate_id   String?  @db.Uuid
+  target_user_id String?  @db.VarChar(40)
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
 }
 
 enum membership_type {

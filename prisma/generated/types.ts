@@ -26,6 +26,13 @@ export type corporate_prayers = {
   created_at: Generated<Timestamp>;
   title: string;
   prayers: string | null;
+  reminder_id: number | null;
+};
+export type group_invitations = {
+  id: Generated<number>;
+  user_id: string;
+  group_id: string;
+  created_at: Generated<Timestamp>;
 };
 export type group_members = {
   id: Generated<number>;
@@ -45,6 +52,16 @@ export type groups = {
   updated_at: Generated<Timestamp>;
   created_at: Generated<Timestamp>;
 };
+export type notifications = {
+  id: Generated<number>;
+  user_id: string;
+  message: string;
+  group_id: string | null;
+  prayer_id: string | null;
+  corporate_id: string | null;
+  target_user_id: string | null;
+  created_at: Generated<Timestamp>;
+};
 export type prayer_prays = {
   id: Generated<number>;
   user_id: string;
@@ -61,6 +78,13 @@ export type prayers = {
   media: string | null;
   created_at: Generated<Timestamp>;
   corporate_id: string | null;
+};
+export type reminders = {
+  id: Generated<number>;
+  days: string;
+  time: Timestamp;
+  value: string;
+  created_at: Generated<Timestamp>;
 };
 export type user_fcm_tokens = {
   id: Generated<number>;
@@ -88,10 +112,13 @@ export type users = {
 export type DB = {
   contents: contents;
   corporate_prayers: corporate_prayers;
+  group_invitations: group_invitations;
   group_members: group_members;
   groups: groups;
+  notifications: notifications;
   prayer_prays: prayer_prays;
   prayers: prayers;
+  reminders: reminders;
   user_fcm_tokens: user_fcm_tokens;
   user_follows: user_follows;
   users: users;
