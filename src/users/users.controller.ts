@@ -23,23 +23,30 @@ import {
   FollowMyselfError,
   UsernameDuplicatedError,
 } from 'src/errors/common.error';
-import { FirebaseService } from 'src/firebase/firebase.service';
+import { NotificationsService } from 'src/notifications/notifications.service';
 
 @Controller('users')
 export class UsersController {
   constructor(
     private readonly appService: UsersService,
-    private readonly firebaseSerivce: FirebaseService,
+    private readonly notificationService: NotificationsService,
   ) {}
 
   @Get()
   async searchUser(
     @Query('query') query?: string,
-    @Query('cursor') cursor?: string,
+    @Query('cursor') oldCursor?: string,
+    @Query('excludeGroupId') excludeGroupId?: string,
   ) {
-    const data = await this.appService.searchUsers({ query, cursor });
-    const newCursor = data.length < 21 ? null : data?.pop();
-    return { data, cursor: newCursor?.uid };
+    const { data, cursor } = await this.appService.searchUsers({
+      query,
+      cursor: oldCursor,
+      excludeGroupId,
+    });
+    return {
+      data,
+      cursor,
+    };
   }
 
   @UseInterceptors(ResponseInterceptor)
@@ -132,7 +139,7 @@ export class UsersController {
         value,
       });
       if (value) {
-        this.firebaseSerivce.followUser(user.sub, userId);
+        this.notificationService.notifyUserFollowed(user.sub, userId);
       }
       return { success: true };
     } catch (e) {

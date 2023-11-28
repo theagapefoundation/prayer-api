@@ -7,7 +7,6 @@ import {
   HttpStatus,
   Param,
   Post,
-  Put,
   Query,
   UseGuards,
   UseInterceptors,
@@ -16,10 +15,9 @@ import { PrayersService } from './prayers.service';
 import { AuthGuard } from 'src/auth/auth.guard';
 import { User, UserEntity } from 'src/auth/auth.decorator';
 import {
-  CreateCorporatePrayerDto,
+  CreateOrUpdateCorporatePrayerDto,
   CreatePrayerDto,
   CreatePrayerPrayDto,
-  UpdateCorporatePrayerDto,
 } from './prayers.interface';
 import { ResponseInterceptor } from 'src/response.interceptor';
 import * as moment from 'moment';
@@ -32,7 +30,7 @@ import {
   TargetNotFoundError,
 } from 'src/errors/common.error';
 import { GroupsService } from 'src/groups/groups.service';
-import { FirebaseService } from 'src/firebase/firebase.service';
+import { NotificationsService } from 'src/notifications/notifications.service';
 
 @Controller('prayers')
 export class PrayersController {
@@ -40,7 +38,7 @@ export class PrayersController {
     private appService: PrayersService,
     private groupService: GroupsService,
     private storageService: StorageService,
-    private firebaseService: FirebaseService,
+    private notificationService: NotificationsService,
   ) {}
 
   @Get('by/user/:userId')
@@ -49,13 +47,12 @@ export class PrayersController {
     @Query('cursor') cursor?: string,
     @User() user?: UserEntity,
   ) {
-    const data = await this.appService.fetchPrayers({
+    const { data, cursor: newCursor } = await this.appService.fetchPrayers({
       userId,
       requestingUserId: user?.sub,
       cursor,
       hideAnonymous: userId !== user?.sub,
     });
-    const newCursor = data.length < 11 ? null : data.pop();
     return {
       createdAt: new Date().toISOString(),
       data,
@@ -69,11 +66,11 @@ export class PrayersController {
     @User() user: UserEntity,
     @Query('cursor') cursor?: string,
   ) {
-    const data = await this.appService.fetchPrayersByUserGroup({
-      userId: user?.sub,
-      cursor,
-    });
-    const newCursor = data.length < 11 ? null : data.pop();
+    const { data, cursor: newCursor } =
+      await this.appService.fetchPrayersByUserGroup({
+        userId: user?.sub,
+        cursor,
+      });
     return {
       createdAt: new Date().toISOString(),
       data,
@@ -88,18 +85,17 @@ export class PrayersController {
     @User() user?: UserEntity,
   ) {
     const group = await this.groupService.fetchGroup(groupId, user?.sub);
-    if (group?.membership_type === 'private' && group?.accepted_at == null) {
+    if (group?.membership_type !== 'open' && group?.accepted_at == null) {
       throw new PrivateGroupError(
         'You must be a member to see a private group',
       );
     }
 
-    const data = await this.appService.fetchPrayers({
+    const { data, cursor: newCursor } = await this.appService.fetchPrayers({
       groupId,
       requestingUserId: user?.sub,
       cursor,
     });
-    const newCursor = data.length < 11 ? null : data.pop();
     return {
       createdAt: new Date().toISOString(),
       data,
@@ -156,12 +152,11 @@ export class PrayersController {
         'You must be a member to see a private group',
       );
     }
-    const data = await this.appService.fetchPrayers({
+    const { data, cursor: newCursor } = await this.appService.fetchPrayers({
       corporateId: prayerId,
       requestingUserId: user?.sub,
       cursor,
     });
-    const newCursor = data.length < 11 ? null : data.pop();
     return {
       createdAt: new Date().toISOString(),
       data,
@@ -172,7 +167,7 @@ export class PrayersController {
   @Get('corporate/by/group/:groupId')
   async fetchGroupCorporatePrayers(
     @Param('groupId') groupId: string,
-    @Timezone() offset?: number,
+    @Timezone() offsetInMinutes?: number,
     @Query('cursor') cursor?: string,
     @User() user?: UserEntity,
   ) {
@@ -180,17 +175,17 @@ export class PrayersController {
     if (group == null) {
       throw new TargetNotFoundError('Unable to find the group');
     }
-    if (group.membership_type === 'private' && group?.accepted_at == null) {
+    if (group.membership_type !== 'open' && group?.accepted_at == null) {
       throw new PrivateGroupError(
         'You must be a member to see a private group',
       );
     }
-    const data = await this.appService.fetchGroupCorporatePrayers({
-      groupId,
-      cursor,
-      offset,
-    });
-    const newCursor = data.length < 6 ? null : data.pop();
+    const { data, cursor: newCursor } =
+      await this.appService.fetchGroupCorporatePrayers({
+        groupId,
+        cursor,
+        timezone: offsetInMinutes,
+      });
     return {
       createdAt: new Date().toISOString(),
       data,
@@ -245,11 +240,10 @@ export class PrayersController {
     @User() user?: UserEntity,
     @Query('cursor') cursor?: string,
   ) {
-    const data = await this.appService.fetchHomeFeed({
+    const { data, cursor: newCursor } = await this.appService.fetchHomeFeed({
       userId: user?.sub,
       cursor,
     });
-    const newCursor = data.length < 11 ? null : data.pop();
     return {
       createdAt: new Date().toISOString(),
       data,
@@ -283,7 +277,7 @@ export class PrayersController {
       value: form.value,
       media: form.media,
     });
-    this.firebaseService.prayerCreated({
+    this.notificationService.notifyPrayerCreated({
       corporateId: form.corporateId,
       groupId: form.groupId,
       userId: user.sub,
@@ -295,15 +289,40 @@ export class PrayersController {
   @UseGuards(AuthGuard)
   @UseInterceptors(ResponseInterceptor)
   @Post('corporate')
-  async createCorporatePrayer(
+  async createOrUpdateCorporatePrayer(
     @User() user: UserEntity,
-    @Body() form: CreateCorporatePrayerDto,
+    @Body() form: CreateOrUpdateCorporatePrayerDto,
+    @Timezone() timezone?: number | null,
   ) {
+    if (form.corporateId) {
+      const prayer = await this.appService.fetchCorporatePrayer(
+        form.corporateId,
+      );
+      if (prayer == null) {
+        throw new TargetNotFoundError('Unable to find the corporate prayer');
+      }
+      if (prayer.user_id !== user.sub) {
+        throw new OperationNotAllowedError(
+          'Only a writer of the prayer can edit',
+        );
+      }
+    }
+    if (
+      !!form.reminderTime != !!form.reminderText ||
+      !!form.reminderText != !!form.reminderDays
+    ) {
+      form.reminderDays = undefined;
+      form.reminderText = undefined;
+      form.reminderTime = undefined;
+    }
+    if (!!form.reminderTime && timezone == null) {
+      throw new BadRequestError('Unable to fetch timezone at the moment');
+    }
     const group = await this.groupService.fetchGroup(form.groupId, user.sub);
     if (group == null) {
       throw new TargetNotFoundError('Unable to find the group');
     }
-    if (group.moderator == null) {
+    if (group!.moderator == null) {
       throw new OperationNotAllowedError(
         'Only moderator can post the corporate prayer',
       );
@@ -328,8 +347,28 @@ export class PrayersController {
         );
       }
     }
+    const reminderDays = form.reminderDays
+      ? JSON.parse(form.reminderDays)
+      : null;
+    if (reminderDays) {
+      if (
+        !Array.isArray(reminderDays) ||
+        reminderDays.some(
+          (value) => typeof value !== 'number' || value < 0 || value > 6,
+        )
+      ) {
+        throw new HttpException(
+          'reminderDays must be an array of number with value between 0 and 6',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
     if (form.startedAt != null && form.endedAt != null) {
-      if (moment(form.endedAt).isBefore(moment(form.startedAt))) {
+      if (
+        moment(form.endedAt)
+          .endOf('day')
+          .isBefore(moment(form.startedAt).startOf('day'))
+      ) {
         throw new HttpException(
           'endedAt cannot be before startedAt',
           HttpStatus.BAD_REQUEST,
@@ -337,6 +376,7 @@ export class PrayersController {
       }
     }
     const { id } = await this.appService.createCorporatePrayer({
+      id: form.corporateId,
       user_id: user.sub,
       group_id: form.groupId,
       title: form.title,
@@ -351,73 +391,20 @@ export class PrayersController {
           ? null
           : moment(form.endedAt).endOf('day').toDate(),
       created_at: new Date(),
+      reminders:
+        reminderDays == null
+          ? undefined
+          : {
+              days: form.reminderDays!,
+              time:
+                form.reminderTime! + this.appService.minutesToString(timezone!),
+              value: form.reminderText!,
+            },
     });
-    this.firebaseService.corporatePrayerCreated({
+    this.notificationService.notifyCorporatePrayerCreated({
       groupId: form.groupId,
       uploaderId: user.sub,
       prayerId: id,
-    });
-    return 'success';
-  }
-
-  @UseGuards(AuthGuard)
-  @UseInterceptors(ResponseInterceptor)
-  @Put('corporate/:corporateId')
-  async editCorporatePrayer(
-    @Param('corporateId') corporateId: string,
-    @User() user: UserEntity,
-    @Body() form: UpdateCorporatePrayerDto,
-  ) {
-    const prayer = await this.appService.fetchCorporatePrayer(corporateId);
-    if (prayer == null) {
-      throw new TargetNotFoundError('Unable to find the corporate prayer');
-    }
-    if (prayer.user_id !== user.sub) {
-      throw new OperationNotAllowedError(
-        'Only a writer of the prayer can edit',
-      );
-    }
-    let prayers = form.prayers ? JSON.parse(form.prayers) : null;
-    if (prayers) {
-      if (
-        !Array.isArray(prayers) ||
-        prayers.some((value) => typeof value !== 'string')
-      ) {
-        throw new HttpException(
-          'prayers must be an array of string',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-      if (prayers.length === 0) {
-        prayers = null;
-      } else if (prayers.length > 10) {
-        throw new HttpException(
-          'prayers can have up to 10 prayers',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-    }
-    if (form.startedAt != null && form.endedAt != null) {
-      if (moment(form.endedAt).isBefore(moment(form.startedAt))) {
-        throw new HttpException(
-          'endedAt cannot be before startedAt',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-    }
-    await this.appService.updateCorporatePrayer({
-      id: corporateId,
-      title: form.title,
-      description: form.description,
-      prayers: JSON.stringify(prayers),
-      started_at:
-        form.startedAt == null
-          ? null
-          : moment(form.startedAt).startOf('day').toDate(),
-      ended_at:
-        form.endedAt == null
-          ? null
-          : moment(form.endedAt).endOf('day').toDate(),
     });
     return 'success';
   }
@@ -428,12 +415,12 @@ export class PrayersController {
     @Query('cursor') cursor?: string,
     @User() user?: UserEntity,
   ) {
-    const data = await this.appService.fetchPrayersPrayedByUser({
-      userId,
-      cursor,
-      requestingUserId: user?.sub,
-    });
-    const newCursor = data.length < 11 ? null : data.pop();
+    const { data, cursor: newCursor } =
+      await this.appService.fetchPrayersPrayedByUser({
+        userId,
+        cursor,
+        requestingUserId: user?.sub,
+      });
     return {
       createdAt: new Date().toISOString(),
       data,
@@ -482,7 +469,7 @@ export class PrayersController {
         userId: user.sub,
         value,
       });
-      this.firebaseService.prayForUser(prayerId, user.sub, !!value);
+      this.notificationService.prayForUser(prayerId, user.sub, !!value);
       return 'success';
     } catch (e) {
       return 'false';

@@ -1,9 +1,8 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
-  HttpException,
-  HttpStatus,
   Param,
   Post,
   Query,
@@ -14,19 +13,24 @@ import { GroupsService } from './groups.service';
 import { ResponseInterceptor } from 'src/response.interceptor';
 import { User, UserEntity } from 'src/auth/auth.decorator';
 import { AuthGuard } from 'src/auth/auth.guard';
-import { AcceptRequestGroupDto, JoinGroupDto } from './groups.interface';
+import {
+  AcceptRequestGroupDto,
+  InviteUserToGroupDto,
+  JoinGroupDto,
+} from './groups.interface';
 import { NoResultError } from 'kysely';
 import {
+  BadRequestError,
   OperationNotAllowedError,
   TargetNotFoundError,
 } from 'src/errors/common.error';
-import { FirebaseService } from 'src/firebase/firebase.service';
+import { NotificationsService } from 'src/notifications/notifications.service';
 
 @Controller('groups/:groupId')
 export class GroupController {
   constructor(
     private readonly appService: GroupsService,
-    private readonly firebaseSerivce: FirebaseService,
+    private readonly notificationService: NotificationsService,
   ) {}
 
   @UseInterceptors(ResponseInterceptor)
@@ -56,7 +60,11 @@ export class GroupController {
           groupId,
           userId: user.sub,
         });
-        this.firebaseSerivce.joinGroup(groupId, user.sub);
+        this.notificationService.notifyJoinGroup(
+          groupId,
+          user.sub,
+          accepted_at == null,
+        );
         return accepted_at;
       }
       await this.appService.leaveGroup({ groupId, userId: user.sub });
@@ -72,28 +80,34 @@ export class GroupController {
   @Get('moderators')
   async fetchModerators(
     @Param('groupId') groupId: string,
-    @Query('cursor') cursor?: number,
+    @Query('query') query?: string,
+    @Query('cursor') cursor?: string,
   ) {
-    const data = await this.appService.fetchMembers(groupId, {
-      cursor,
-      moderator: true,
-    });
-    const newCursor = data.length < 21 ? null : data.pop();
+    const { data, cursor: newCursor } = await this.appService.fetchMembers(
+      groupId,
+      {
+        query,
+        cursor,
+        moderator: true,
+      },
+    );
     return { createdAt: new Date().toISOString(), data, cursor: newCursor };
   }
 
   @Get('members')
   async fetchMembers(
     @Param('groupId') groupId: string,
-    @Query('cursor') cursor?: number,
+    @Query('cursor') cursor?: string,
     @Query('query') query?: string,
   ) {
-    const data = await this.appService.fetchMembers(groupId, {
-      cursor,
-      query,
-      moderator: false,
-    });
-    const newCursor = data.length < 21 ? null : data.pop();
+    const { data, cursor: newCursor } = await this.appService.fetchMembers(
+      groupId,
+      {
+        cursor,
+        query,
+        moderator: false,
+      },
+    );
     return {
       createdAt: new Date().toISOString(),
       data,
@@ -106,6 +120,28 @@ export class GroupController {
   async fetchRequests(
     @User() user: UserEntity,
     @Param('groupId') groupId: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    if (!(await this.appService.checkModerator(groupId, user.sub))) {
+      throw new OperationNotAllowedError(
+        'Only moderators are able to see the requests',
+      );
+    }
+    const { data, cursor: newCursor } = await this.appService.fetchMembers(
+      groupId,
+      {
+        cursor,
+        requests: true,
+      },
+    );
+    return { createdAt: new Date().toISOString(), data, cursor: newCursor };
+  }
+
+  @Get('invites')
+  @UseGuards(AuthGuard)
+  async fetchInvites(
+    @User() user: UserEntity,
+    @Param('groupId') groupId: string,
     @Query('cursor') cursor?: number,
   ) {
     if (!(await this.appService.checkModerator(groupId, user.sub))) {
@@ -113,11 +149,8 @@ export class GroupController {
         'Only moderators are able to see the requests',
       );
     }
-    const data = await this.appService.fetchMembers(groupId, {
-      cursor,
-      requests: true,
-    });
-    const newCursor = data.length < 21 ? null : data.pop();
+    const { data, cursor: newCursor } =
+      await this.appService.fetchPendingInvites(groupId, cursor);
     return { createdAt: new Date().toISOString(), data, cursor: newCursor };
   }
 
@@ -134,7 +167,7 @@ export class GroupController {
       );
     }
     await this.appService.handleRequest({ groupId, userId });
-    this.firebaseSerivce.groupRequestAccepted(groupId, userId);
+    this.notificationService.notifyGroupRequestAccepted(groupId, userId);
     return 'success';
   }
 
@@ -142,18 +175,64 @@ export class GroupController {
   @Post('promote')
   async handleModerators(
     @Param('groupId') groupId: string,
-    @Body() { userId }: AcceptRequestGroupDto,
+    @Body() { userId, value }: AcceptRequestGroupDto,
     @User() user: UserEntity,
   ) {
     const data = await this.appService.fetchGroup(groupId);
     if (data?.admin_id !== user.sub) {
-      throw new HttpException(
+      throw new OperationNotAllowedError(
         'Only admin can promote user to moderator',
-        HttpStatus.FORBIDDEN,
       );
     }
-    await this.appService.handleModerator({ groupId, userId });
-    this.firebaseSerivce.memberPromoted(groupId, userId);
+    if (userId === data?.admin_id) {
+      throw new OperationNotAllowedError('You cannot change admin permission');
+    }
+    await this.appService.handleModerator({
+      groupId,
+      userId,
+      value,
+    });
+    this.notificationService.notifyMemberPromoted(groupId, userId);
+    return 'success';
+  }
+
+  @UseInterceptors(ResponseInterceptor)
+  @UseGuards(AuthGuard)
+  @Post('invite')
+  async sendInvitation(
+    @Param('groupId') groupId: string,
+    @User() user: UserEntity,
+    @Body() { value }: InviteUserToGroupDto,
+  ) {
+    const data = await this.appService.fetchGroup(groupId, user.sub);
+    if (data?.moderator == null) {
+      throw new OperationNotAllowedError('Only moderator can send invitation');
+    }
+    value = JSON.parse(value);
+    if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
+      throw new BadRequestError('`value` must be an array of uid');
+    }
+    await this.appService.inviteUser({ groupId, userIds: value, value: true });
+    return 'success';
+  }
+
+  @UseInterceptors(ResponseInterceptor)
+  @UseGuards(AuthGuard)
+  @Delete('invite')
+  async deleteInvitation(
+    @Param('groupId') groupId: string,
+    @User() user: UserEntity,
+    @Body() { value }: InviteUserToGroupDto,
+  ) {
+    const data = await this.appService.fetchGroup(groupId, user.sub);
+    if (data?.moderator == null) {
+      throw new OperationNotAllowedError('Only moderator can send invitation');
+    }
+    value = JSON.parse(value);
+    if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
+      throw new BadRequestError('`value` must be an array of uid');
+    }
+    await this.appService.inviteUser({ groupId, userIds: value, value: false });
     return 'success';
   }
 }

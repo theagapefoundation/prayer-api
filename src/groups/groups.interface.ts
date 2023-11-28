@@ -1,6 +1,8 @@
 import {
+  IsBoolean,
   IsBooleanString,
   IsIn,
+  IsJSON,
   IsNotEmpty,
   IsOptional,
   MaxLength,
@@ -43,4 +45,12 @@ export class JoinGroupDto {
 export class AcceptRequestGroupDto {
   @IsNotEmpty()
   userId: string;
+
+  @IsBoolean()
+  value: boolean;
+}
+
+export class InviteUserToGroupDto {
+  @IsJSON()
+  value: string;
 }

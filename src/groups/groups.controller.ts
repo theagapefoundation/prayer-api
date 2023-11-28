@@ -21,14 +21,17 @@ import { OperationNotAllowedError } from 'src/errors/common.error';
 export class GroupsController {
   constructor(private readonly appService: GroupsService) {}
 
-  @Get()
-  async getGroups(
-    @Query('query') query?: string,
+  @Get('by/user/:userId')
+  async getGroupsByUser(
+    @Param('userId') userId: string,
     @Query('cursor') cursor?: string,
-    @Query('userId') userId?: string,
+    @User() user?: UserEntity,
   ) {
-    const data = await this.appService.fetchGroups({ query, cursor, userId });
-    const newCursor = data.length < 11 ? null : data.pop();
+    const { data, cursor: newCursor } = await this.appService.fetchGroups({
+      userId,
+      cursor,
+      requestingUserId: user?.sub,
+    });
     return {
       createdAt: new Date().toISOString(),
       data,
@@ -36,17 +39,40 @@ export class GroupsController {
     };
   }
 
-  @Get('by/user/:userId')
-  async getGroupsByUser(
-    @Param('userId') userId: string,
-    @Query('cursor') cursor?: string,
+  @UseGuards(AuthGuard)
+  @Get('invitation')
+  async fetchInvitations(
+    @User() user: UserEntity,
+    @Query('cursor') cursor?: number,
   ) {
-    const data = await this.appService.fetchGroups({ userId, cursor });
-    const newCursor = data.length < 11 ? null : data.pop();
+    const { data, cursor: newCursor } = await this.appService.fetchInvitations({
+      userId: user.sub,
+      cursor,
+    });
     return {
       createdAt: new Date().toISOString(),
       data,
-      cursor: newCursor?.id,
+      cursor: newCursor,
+    };
+  }
+
+  @Get()
+  async getGroups(
+    @Query('query') query?: string,
+    @Query('cursor') cursor?: string,
+    @Query('userId') userId?: string,
+    @User() user?: UserEntity,
+  ) {
+    const { data, cursor: newCursor } = await this.appService.fetchGroups({
+      query,
+      cursor,
+      userId,
+      requestingUserId: user?.sub,
+    });
+    return {
+      createdAt: new Date().toISOString(),
+      data,
+      cursor: newCursor,
     };
   }
 

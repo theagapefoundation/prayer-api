@@ -36,29 +36,63 @@ export class UsersService {
       .executeTakeFirst();
   }
 
-  async searchUsers({ query, cursor }: { query?: string; cursor?: string }) {
+  async searchUsers({
+    query,
+    cursor,
+    excludeGroupId,
+  }: {
+    query?: string;
+    cursor?: string;
+    excludeGroupId?: string;
+  }) {
     const data = await this.dbService
       .selectFrom('users')
-      .select(['profile', 'uid', 'username', 'name'])
       .$if(!!query, (qb) =>
-        qb.where((eb) =>
-          eb.or([
+        qb.where(({ or, eb }) =>
+          or([
             eb('name', 'like', `%${query}%`),
             eb('username', 'like', `%${query}%`),
           ]),
         ),
       )
-      .orderBy('created_at desc')
-      .$if(!!cursor, (qb) => qb.where('uid', '=', cursor!))
-      .limit(21)
+      .$if(!!excludeGroupId, (qb) =>
+        qb
+          .leftJoin('group_members', (join) =>
+            join
+              .onRef('users.uid', '=', 'group_members.user_id')
+              .on('group_members.group_id', '=', excludeGroupId!),
+          )
+          .where('group_members.id', 'is', null),
+      )
+      .select(['users.profile', 'users.uid', 'users.username', 'users.name'])
+      .select(
+        sql<string>`CONCAT(EXTRACT(EPOCH from users.created_at), users.uid)`.as(
+          'cursor',
+        ),
+      )
+      .orderBy(['users.created_at desc', 'users.uid desc'])
+      .$if(!!cursor, (qb) =>
+        qb.where(
+          sql<string>`CONCAT(EXTRACT(EPOCH from users.created_at), users.uid)`,
+          '<=',
+          Buffer.from(cursor!, 'base64url').toString(),
+        ),
+      )
+      .limit(11)
       .execute();
+    const newCursor = data.length < 11 ? null : data?.pop()?.cursor;
     data.forEach((d) => {
+      (d.cursor as any) = undefined;
       const { profile } = this.fetchPresignedUrl({
         profile: d.profile,
       });
       d.profile = profile;
     });
-    return data;
+    return {
+      data,
+      cursor:
+        newCursor == null ? null : Buffer.from(newCursor).toString('base64url'),
+    };
   }
 
   async fetchUser({
@@ -167,9 +201,9 @@ export class UsersService {
         'users.profile',
         'users.username',
       ])
-      .orderBy('user_follows.created_at desc')
+      .orderBy('user_follows.id desc')
       .limit(11)
-      .$if(!!cursor, (eb) => eb.where('id', '=', cursor))
+      .$if(!!cursor, (eb) => eb.where('id', '<=', cursor))
       .execute();
     data.forEach((d) => {
       if (d.profile) {

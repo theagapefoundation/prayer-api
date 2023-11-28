@@ -6,7 +6,7 @@ import { GroupsController } from './groups.controller';
 import { ConfigModule } from '@nestjs/config';
 import { StorageModule } from 'src/storage/storage.module';
 import { GroupController } from './group.controller';
-import { FirebaseModule } from 'src/firebase/firebase.module';
+import { NotificationsModule } from 'src/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -14,9 +14,9 @@ import { FirebaseModule } from 'src/firebase/firebase.module';
     AuthModule,
     StorageModule,
     ConfigModule,
-    FirebaseModule,
+    NotificationsModule,
   ],
-  controllers: [GroupController, GroupsController],
+  controllers: [GroupsController, GroupController],
   providers: [GroupsService],
 })
 export class GroupsModule {}

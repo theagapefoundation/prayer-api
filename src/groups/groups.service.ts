@@ -21,6 +21,7 @@ export class GroupsService {
       .leftJoin('users as admin', 'admin.uid', 'groups.admin_id')
       .leftJoin('group_members as members', 'members.group_id', 'groups.id')
       .leftJoin('prayers', 'prayers.group_id', 'groups.id')
+      .leftJoin('group_invitations', 'group_invitations.group_id', 'groups.id')
       .where('members.accepted_at', 'is not', null)
       .selectAll(['groups'])
       .select(({ fn }) => [
@@ -34,7 +35,9 @@ export class GroupsService {
           .coalesce(fn.count<string>(sql`DISTINCT prayers.id`), sql<string>`0`)
           .as('prayers_count'),
       ])
+      .select('group_invitations.created_at as invited_at')
       .groupBy(['groups.id', 'admin.uid'])
+      .groupBy(['groups.id', 'admin.uid', 'invited_at'])
       .select((eb) =>
         jsonObjectFrom(
           eb.selectNoFrom([
@@ -87,35 +90,23 @@ export class GroupsService {
     };
   }
 
-  async fetchGroups({
-    query,
-    cursor,
+  async fetchInvitations({
     userId,
+    cursor,
   }: {
-    query?: string;
-    cursor?: string;
-    userId?: string;
+    userId: string;
+    cursor?: number;
   }) {
     const data = await this.dbService
-      .selectFrom('groups')
+      .selectFrom('group_invitations')
+      .innerJoin('groups', 'group_invitations.group_id', 'groups.id')
       .leftJoin('users as admin', 'admin.uid', 'groups.admin_id')
       .leftJoin('group_members', 'group_members.group_id', 'groups.id')
-      .groupBy(['groups.id', 'admin.uid'])
-      .$if(!!query, (qb) =>
-        qb.where((eb) =>
-          eb.or([
-            eb('groups.name', 'like', `%${query}%`),
-            eb('groups.description', 'like', `%${query}%`),
-          ]),
-        ),
-      )
-      .$if(!!cursor, (eb) => eb.where('groups.id', '=', cursor!))
-      .$if(!!userId, (eb) =>
-        eb
-          .where('group_members.user_id', '=', userId!)
-          .where('group_members.accepted_at', 'is not', null),
-      )
-      .orderBy('groups.created_at desc')
+      .groupBy(['group_invitations.id', 'groups.id', 'admin.uid'])
+      .where('group_invitations.user_id', '=', userId)
+      .$if(!!cursor, (eb) => eb.where('group_invitations.id', '<=', cursor!))
+      .where('group_members.accepted_at', 'is not', null)
+      .orderBy('group_invitations.id desc')
       .select((eb) =>
         jsonObjectFrom(
           eb.selectNoFrom([
@@ -126,9 +117,109 @@ export class GroupsService {
           ]),
         ).as('admin'),
       )
+      .select(({ fn }) =>
+        fn
+          .coalesce(
+            fn.count<string>(sql`DISTINCT group_members.user_id`),
+            sql<string>`0`,
+          )
+          .as('members_count'),
+      )
+      .select([
+        'group_invitations.id as cursor',
+        'groups.id',
+        'groups.name',
+        'groups.admin_id',
+        'groups.membership_type',
+        'groups.banner',
+      ])
+      .limit(11)
+      .execute();
+    const newCursor = data.length < 11 ? null : data.pop()?.cursor ?? null;
+    data.forEach((d) => {
+      (d.cursor as any) = undefined;
+      d.banner = this.storageService.publicBucket.file(d.banner).publicUrl();
+      if (d.admin?.profile) {
+        d.admin.profile = this.storageService.publicBucket
+          .file(d.admin.profile)
+          .publicUrl();
+      }
+      (d.members_count as unknown) = parseInt(d.members_count, 10);
+    });
+    return { data, cursor: newCursor };
+  }
+
+  async fetchGroups({
+    query,
+    cursor,
+    userId,
+    requestingUserId,
+  }: {
+    query?: string;
+    cursor?: string;
+    userId?: string;
+    requestingUserId?: string;
+  }) {
+    const data = await this.dbService
+      .selectFrom('groups')
+      .leftJoin('users as admin', 'admin.uid', 'groups.admin_id')
+      .leftJoin('group_members', 'group_members.group_id', 'groups.id')
+      .groupBy(['groups.id', 'admin.uid'])
+      .where('groups.membership_type', '!=', 'private')
+      .$if(!!requestingUserId, (qb) =>
+        qb
+          .leftJoin('group_members as requester', (join) =>
+            join
+              .onRef('requester.group_id', '=', 'groups.id')
+              .on('requester.user_id', '=', requestingUserId!),
+          )
+          .clearWhere()
+          .where(({ or, eb }) =>
+            or([
+              eb('groups.membership_type', '!=', 'private'),
+              eb('requester.accepted_at', 'is not', null),
+            ]),
+          ),
+      )
+      .$if(!!query, (qb) =>
+        qb.where((eb) =>
+          eb.or([
+            eb('groups.name', 'like', `%${query}%`),
+            eb('groups.description', 'like', `%${query}%`),
+          ]),
+        ),
+      )
+      .$if(!!userId, (eb) => eb.where('group_members.user_id', '=', userId!))
+      .$if(!!cursor, (eb) =>
+        eb.where(
+          sql<string>`CONCAT(EXTRACT(EPOCH FROM groups.created_at), groups.id)`,
+          '<=',
+          Buffer.from(cursor!, 'base64url').toString(),
+        ),
+      )
+      .where('group_members.accepted_at', 'is not', null)
+      .orderBy(['groups.created_at desc', 'groups.id desc'])
+      .select(
+        sql<string>`CONCAT(EXTRACT(EPOCH FROM groups.created_at), groups.id)`.as(
+          'cursor',
+        ),
+      )
       .select((eb) =>
-        eb.fn
-          .coalesce(eb.fn.count<string>('group_members.id'), sql<string>`0`)
+        jsonObjectFrom(
+          eb.selectNoFrom([
+            'admin.uid',
+            'admin.username',
+            'admin.profile',
+            'admin.name',
+          ]),
+        ).as('admin'),
+      )
+      .select(({ fn }) =>
+        fn
+          .coalesce(
+            fn.count<string>(sql`DISTINCT group_members.user_id`),
+            sql<string>`0`,
+          )
           .as('members_count'),
       )
       .select([
@@ -140,7 +231,9 @@ export class GroupsService {
       ])
       .limit(11)
       .execute();
+    const newCursor = data.length < 11 ? null : data.pop()?.cursor;
     data.forEach((d) => {
+      (d.cursor as any) = undefined;
       d.banner = this.storageService.publicBucket.file(d.banner).publicUrl();
       if (d.admin?.profile) {
         d.admin.profile = this.storageService.publicBucket
@@ -149,7 +242,11 @@ export class GroupsService {
       }
       (d.members_count as unknown) = parseInt(d.members_count, 10);
     });
-    return data;
+    return {
+      data,
+      cursor:
+        newCursor == null ? null : Buffer.from(newCursor).toString('base64url'),
+    };
   }
 
   async createGroup(body: {
@@ -216,7 +313,7 @@ export class GroupsService {
   }
 
   async joinGroup(body: { groupId: string; userId: string }) {
-    return this.dbService
+    const data = await this.dbService
       .insertInto('group_members')
       .values((eb) => ({
         user_id: eb
@@ -234,6 +331,16 @@ export class GroupsService {
             qb
               .case()
               .when('groups.membership_type', '=', 'open')
+              .then(sql<Date>`timezone('utc', now())`)
+              .when(
+                sql`
+                EXISTS(
+                  SELECT gi.id
+                  FROM group_invitations gi
+                  WHERE gi.group_id = ${body.groupId} AND gi.user_id = ${body.userId}
+                )
+              `,
+              )
               .then(sql<Date>`timezone('utc', now())`)
               .else(sql<null>`NULL`)
               .end()
@@ -258,6 +365,12 @@ export class GroupsService {
       )
       .returning('accepted_at')
       .executeTakeFirstOrThrow();
+    this.dbService
+      .deleteFrom('group_invitations')
+      .where('user_id', '=', body.userId)
+      .where('group_id', '=', body.groupId)
+      .executeTakeFirst();
+    return data;
   }
 
   async leaveGroup(body: { groupId: string; userId: string }) {
@@ -279,6 +392,31 @@ export class GroupsService {
       .executeTakeFirstOrThrow();
   }
 
+  async fetchPendingInvites(groupId: string, cursor?: number) {
+    const data = await this.dbService
+      .selectFrom('group_invitations')
+      .leftJoin('users', 'group_invitations.user_id', 'users.uid')
+      .where('group_invitations.group_id', '=', groupId)
+      .orderBy('group_invitations.id desc')
+      .$if(!!cursor, (eb) => eb.where('group_invitations.id', '<=', cursor!))
+      .limit(21)
+      .select([
+        'group_invitations.id',
+        'users.uid',
+        'users.name',
+        'users.profile',
+        'users.username',
+      ])
+      .execute();
+    const newCursor = data.length < 21 ? null : data.pop()?.id;
+    data.forEach((member) => {
+      if (member.profile) {
+        member.profile = this.storageService.getPublicUrl(member.profile);
+      }
+    });
+    return { data, cursor: newCursor ?? null };
+  }
+
   async fetchMembers(
     groupId: string,
     {
@@ -288,20 +426,29 @@ export class GroupsService {
       query,
     }: {
       query?: string;
-      cursor?: number;
+      cursor?: string;
       moderator?: boolean;
       requests?: boolean;
     },
   ) {
-    const members = await this.dbService
+    cursor = !!cursor
+      ? Buffer.from(cursor!, 'base64url').toString()
+      : undefined;
+    const data = await this.dbService
       .selectFrom('group_members')
       .where('group_members.group_id', '=', groupId)
-      .$if(!!cursor, (qb) => qb.where('id', '=', cursor!))
+      .leftJoin('users', 'group_members.user_id', 'users.uid')
       .$if(moderator != null, (qb) =>
         qb.where('moderator', moderator ? 'is not' : 'is', null),
       )
+      .$if(!!cursor, (qb) =>
+        qb.where(
+          sql<string>`CONCAT(LPAD(EXTRACT(EPOCH FROM group_members.accepted_at)::text, 20, '0'), group_members.id)`,
+          '>=',
+          cursor!,
+        ),
+      )
       .where('accepted_at', requests ? 'is' : 'is not', null)
-      .leftJoin('users', 'group_members.user_id', 'users.uid')
       .$if(!!query, (qb) =>
         qb.where((eb) =>
           eb.or([
@@ -310,9 +457,8 @@ export class GroupsService {
           ]),
         ),
       )
-      .orderBy('group_members.moderator')
-      .orderBy('group_members.accepted_at desc')
-      .limit(21)
+      .orderBy(['group_members.accepted_at asc', 'group_members.id asc'])
+      .limit(11)
       .select([
         'users.uid',
         'users.name',
@@ -320,13 +466,24 @@ export class GroupsService {
         'users.profile',
         'group_members.moderator',
       ])
+      .select(
+        sql<string>`CONCAT(LPAD(EXTRACT(EPOCH FROM group_members.accepted_at)::text, 20, '0'), group_members.id)`.as(
+          'cursor',
+        ),
+      )
       .execute();
-    members.forEach((member) => {
+    const newCursor = data.length < 11 ? null : data.pop()?.cursor ?? null;
+    data.forEach((member) => {
+      (member.cursor as any) = undefined;
       if (member.profile) {
         member.profile = this.storageService.getPublicUrl(member.profile);
       }
     });
-    return members;
+    return {
+      data,
+      cursor:
+        newCursor == null ? null : Buffer.from(newCursor).toString('base64url'),
+    };
   }
 
   async deleteGroup(groupId: string) {
@@ -391,15 +548,42 @@ export class GroupsService {
   async handleModerator({
     groupId,
     userId,
+    value,
   }: {
     groupId: string;
     userId: string;
+    value?: boolean;
   }) {
     return this.dbService
       .updateTable('group_members')
       .where('group_id', '=', groupId)
       .where('user_id', '=', userId)
-      .set({ moderator: new Date() })
+      .set({ moderator: value ? new Date() : null })
       .executeTakeFirstOrThrow();
+  }
+
+  async inviteUser({
+    groupId,
+    userIds,
+    value,
+  }: {
+    groupId: string;
+    userIds: string[];
+    value: boolean;
+  }) {
+    if (value) {
+      return this.dbService
+        .insertInto('group_invitations')
+        .values(
+          userIds.map((userId) => ({ group_id: groupId, user_id: userId })),
+        )
+        .onConflict((oc) => oc.columns(['group_id', 'user_id']).doNothing())
+        .executeTakeFirst();
+    }
+    return this.dbService
+      .deleteFrom('group_invitations')
+      .where('group_id', '=', groupId)
+      .where('user_id', 'in', userIds)
+      .executeTakeFirst();
   }
 }

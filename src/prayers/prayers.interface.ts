@@ -7,7 +7,11 @@ import {
   MaxLength,
 } from 'class-validator';
 
-export class CreateCorporatePrayerDto {
+export class CreateOrUpdateCorporatePrayerDto {
+  @IsOptional()
+  @IsUUID()
+  corporateId?: string;
+
   @IsUUID()
   groupId: string;
 
@@ -25,25 +29,16 @@ export class CreateCorporatePrayerDto {
 
   @IsOptional()
   endedAt?: string;
-}
-
-export class UpdateCorporatePrayerDto {
-  @IsOptional()
-  @IsNotEmpty()
-  title: string;
 
   @IsOptional()
-  description?: string;
+  reminderTime?: string;
+
+  @IsOptional()
+  reminderText?: string;
 
   @IsOptional()
   @IsJSON()
-  prayers?: string;
-
-  @IsOptional()
-  startedAt?: string;
-
-  @IsOptional()
-  endedAt?: string;
+  reminderDays?: string;
 }
 
 export class CreatePrayerDto {

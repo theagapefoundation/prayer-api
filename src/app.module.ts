@@ -8,6 +8,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { UserGuard } from './auth/user.guard';
 import { PrayersModule } from './prayers/prayers.module';
 import { FirebaseModule } from './firebase/firebase.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { FirebaseModule } from './firebase/firebase.module';
     UploadsModule,
     PrayersModule,
     FirebaseModule,
+    NotificationsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: UserGuard }],
 })

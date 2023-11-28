@@ -6,7 +6,7 @@ import { StorageModule } from 'src/storage/storage.module';
 import { PrayersController } from './prayers.controller';
 import { PrayersService } from './prayers.service';
 import { GroupsService } from 'src/groups/groups.service';
-import { FirebaseModule } from 'src/firebase/firebase.module';
+import { NotificationsModule } from 'src/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -14,7 +14,7 @@ import { FirebaseModule } from 'src/firebase/firebase.module';
     AuthModule,
     StorageModule,
     ConfigModule,
-    FirebaseModule,
+    NotificationsModule,
   ],
   controllers: [PrayersController],
   providers: [PrayersService, GroupsService],
