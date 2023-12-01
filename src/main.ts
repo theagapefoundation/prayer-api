@@ -16,6 +16,8 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
 
+  app.enableShutdownHooks();
+
   await app.listen(parseInt(process.env.PORT as string, 10) || 3000);
 }
 bootstrap();
