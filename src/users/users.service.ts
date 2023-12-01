@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { UpdateObject, sql } from 'kysely';
+import { SelectQueryBuilder, UpdateObject, sql } from 'kysely';
 import { DB } from 'prisma/generated/types';
 import { KyselyService } from 'src/kysely/kysely.service';
 import { StorageService } from 'src/storage/storage.service';
@@ -47,6 +47,15 @@ export class UsersService {
   }) {
     const data = await this.dbService
       .selectFrom('users')
+      .$if(!!excludeGroupId, (qb) =>
+        qb
+          .leftJoin('group_members', (join) =>
+            join
+              .onRef('group_members.user_id', '=', 'users.uid')
+              .on('group_members.group_id', '=', excludeGroupId!),
+          )
+          .where('group_members.id', 'is', null),
+      )
       .$if(!!query, (qb) =>
         qb.where(({ or, eb }) =>
           or([
@@ -54,15 +63,6 @@ export class UsersService {
             eb('username', 'like', `%${query}%`),
           ]),
         ),
-      )
-      .$if(!!excludeGroupId, (qb) =>
-        qb
-          .leftJoin('group_members', (join) =>
-            join
-              .onRef('users.uid', '=', 'group_members.user_id')
-              .on('group_members.group_id', '=', excludeGroupId!),
-          )
-          .where('group_members.id', 'is', null),
       )
       .select(['users.profile', 'users.uid', 'users.username', 'users.name'])
       .select(
@@ -108,48 +108,50 @@ export class UsersService {
       .selectFrom('users')
       .$if(!!userId, (eb) => eb.where('uid', '=', userId!))
       .$if(!!username, (eb) => eb.where('username', '=', username!))
-      .selectAll()
       .$if(!!requestUserId && requestUserId !== userId, (qb) =>
-        qb.select((eb) =>
-          eb
-            .selectFrom('user_follows')
-            .whereRef('user_follows.follower_id', '=', 'users.uid')
-            .where('user_follows.following_id', '=', requestUserId!)
-            .select('user_follows.created_at')
-            .as('followed_at'),
-        ),
+        qb
+          .leftJoin('user_follows', (join) =>
+            join
+              .onRef('user_follows.follower_id', '=', 'users.uid')
+              .on('user_follows.following_id', '=', requestUserId!),
+          )
+          .select('user_follows.created_at as followed_at')
+          .groupBy('user_follows.id'),
       )
-      .select(({ selectFrom }) => [
-        selectFrom('user_follows')
-          .whereRef('user_follows.follower_id', '=', 'users.uid')
-          .select(({ fn }) =>
-            fn
-              .coalesce(fn.count<string>('user_follows.id'), sql<string>`0`)
-              .as('value'),
+      .leftJoin(
+        'user_follows as followers',
+        'followers.follower_id',
+        'users.uid',
+      )
+      .leftJoin(
+        'user_follows as followings',
+        'followings.following_id',
+        'users.uid',
+      )
+      .leftJoin('prayers', 'prayers.user_id', 'users.uid')
+      .leftJoin('prayer_prays', 'prayer_prays.user_id', 'users.uid')
+      .groupBy('users.uid')
+      .selectAll(['users'])
+      .select(({ fn }) => [
+        fn
+          .coalesce(
+            fn.count<string>(sql`DISTINCT(followers.id)`),
+            sql<string>`0`,
           )
           .as('followers_count'),
-        selectFrom('user_follows')
-          .whereRef('user_follows.following_id', '=', 'users.uid')
-          .select(({ fn }) =>
-            fn
-              .coalesce(fn.count<string>('user_follows.id'), sql<string>`0`)
-              .as('value'),
+        fn
+          .coalesce(
+            fn.count<string>(sql`DISTINCT(followings.id)`),
+            sql<string>`0`,
           )
           .as('followings_count'),
-        selectFrom('prayers')
-          .whereRef('prayers.user_id', '=', 'users.uid')
-          .select(({ fn }) =>
-            fn
-              .coalesce(fn.count<string>('prayers.id'), sql<string>`0`)
-              .as('value'),
-          )
+        fn
+          .coalesce(fn.count<string>(sql`DISTINCT(prayers.id)`), sql<string>`0`)
           .as('prayers_count'),
-        selectFrom('prayer_prays')
-          .whereRef('prayer_prays.user_id', '=', 'users.uid')
-          .select(({ fn }) =>
-            fn
-              .coalesce(fn.count<string>('prayer_prays.id'), sql<string>`0`)
-              .as('value'),
+        fn
+          .coalesce(
+            fn.count<string>(sql`DISTINCT(prayer_prays.id)`),
+            sql<string>`0`,
           )
           .as('prays_count'),
       ])
@@ -178,20 +180,19 @@ export class UsersService {
     follower?: string;
     cursor?: number;
   }) {
-    if (!follower && !following) {
-      return null;
-    }
-    let query: any;
+    let query: SelectQueryBuilder<DB, 'users' | 'user_follows', object>;
     if (follower) {
       query = this.dbService
         .selectFrom('user_follows')
-        .leftJoin('users', 'user_follows.following_id', 'users.uid')
+        .innerJoin('users', 'user_follows.following_id', 'users.uid')
         .where('follower_id', '=', follower);
     } else if (following) {
       query = this.dbService
         .selectFrom('user_follows')
-        .leftJoin('users', 'user_follows.follower_id', 'users.uid')
+        .innerJoin('users', 'user_follows.follower_id', 'users.uid')
         .where('following_id', '=', following);
+    } else {
+      return [];
     }
     const data = await query
       .select([
@@ -203,7 +204,7 @@ export class UsersService {
       ])
       .orderBy('user_follows.id desc')
       .limit(11)
-      .$if(!!cursor, (eb) => eb.where('id', '<=', cursor))
+      .$if(!!cursor, (eb) => eb.where('id', '<=', cursor!))
       .execute();
     data.forEach((d) => {
       if (d.profile) {

@@ -216,7 +216,7 @@ export class NotificationsService {
       this.dbService
         .selectFrom('prayers')
         .leftJoin('prayer_prays', 'prayer_prays.prayer_id', 'prayers.id')
-        .leftJoin('users', 'users.uid', 'prayers.user_id')
+        .innerJoin('users', 'users.uid', 'prayers.user_id')
         .where('prayers.id', '=', prayerId)
         .select(['users.uid', 'users.username'])
         .$if(!!notifyFellows, (qb) =>
@@ -280,7 +280,7 @@ export class NotificationsService {
   }) {
     const { name, members } = await this.dbService
       .selectFrom('groups')
-      .leftJoin('group_members', 'group_members.group_id', 'groups.id')
+      .innerJoin('group_members', 'group_members.group_id', 'groups.id')
       .where('groups.id', '=', groupId)
       .where('group_members.accepted_at', 'is not', null)
       .select('groups.name')
@@ -325,7 +325,7 @@ export class NotificationsService {
       const [{ user_id, title, users }, { username }] = await Promise.all([
         this.dbService
           .selectFrom('corporate_prayers')
-          .leftJoin('prayers', 'prayers.corporate_id', 'corporate_prayers.id')
+          .innerJoin('prayers', 'prayers.corporate_id', 'corporate_prayers.id')
           .select(['corporate_prayers.user_id', 'corporate_prayers.title'])
           .where('corporate_prayers.id', '=', corporateId)
           .select((eb) =>
@@ -362,7 +362,7 @@ export class NotificationsService {
       const [{ name, members }, { username }] = await Promise.all([
         this.dbService
           .selectFrom('groups')
-          .leftJoin('group_members', 'group_members.group_id', 'groups.id')
+          .innerJoin('group_members', 'group_members.group_id', 'groups.id')
           .where('groups.id', '=', groupId)
           .select('groups.name')
           .select((eb) =>
@@ -400,7 +400,7 @@ export class NotificationsService {
     } else {
       const data = await this.dbService
         .selectFrom('users')
-        .leftJoin('user_follows', 'user_follows.follower_id', 'users.uid')
+        .innerJoin('user_follows', 'user_follows.follower_id', 'users.uid')
         .where('users.uid', '=', userId)
         .select('users.username')
         .select((eb) =>

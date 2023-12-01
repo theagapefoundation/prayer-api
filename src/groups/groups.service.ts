@@ -18,8 +18,8 @@ export class GroupsService {
     const data = await this.dbService
       .selectFrom('groups')
       .where('groups.id', '=', groupId)
-      .leftJoin('users as admin', 'admin.uid', 'groups.admin_id')
-      .leftJoin('group_members as members', 'members.group_id', 'groups.id')
+      .innerJoin('users as admin', 'admin.uid', 'groups.admin_id')
+      .innerJoin('group_members as members', 'members.group_id', 'groups.id')
       .leftJoin('prayers', 'prayers.group_id', 'groups.id')
       .leftJoin('group_invitations', 'group_invitations.group_id', 'groups.id')
       .where('members.accepted_at', 'is not', null)
@@ -100,8 +100,8 @@ export class GroupsService {
     const data = await this.dbService
       .selectFrom('group_invitations')
       .innerJoin('groups', 'group_invitations.group_id', 'groups.id')
-      .leftJoin('users as admin', 'admin.uid', 'groups.admin_id')
-      .leftJoin('group_members', 'group_members.group_id', 'groups.id')
+      .innerJoin('users as admin', 'admin.uid', 'groups.admin_id')
+      .innerJoin('group_members', 'group_members.group_id', 'groups.id')
       .groupBy(['group_invitations.id', 'groups.id', 'admin.uid'])
       .where('group_invitations.user_id', '=', userId)
       .$if(!!cursor, (eb) => eb.where('group_invitations.id', '<=', cursor!))
@@ -162,8 +162,8 @@ export class GroupsService {
   }) {
     const data = await this.dbService
       .selectFrom('groups')
-      .leftJoin('users as admin', 'admin.uid', 'groups.admin_id')
-      .leftJoin('group_members', 'group_members.group_id', 'groups.id')
+      .innerJoin('users as admin', 'admin.uid', 'groups.admin_id')
+      .innerJoin('group_members', 'group_members.group_id', 'groups.id')
       .groupBy(['groups.id', 'admin.uid'])
       .where('groups.membership_type', '!=', 'private')
       .$if(!!requestingUserId, (qb) =>
@@ -395,7 +395,7 @@ export class GroupsService {
   async fetchPendingInvites(groupId: string, cursor?: number) {
     const data = await this.dbService
       .selectFrom('group_invitations')
-      .leftJoin('users', 'group_invitations.user_id', 'users.uid')
+      .innerJoin('users', 'group_invitations.user_id', 'users.uid')
       .where('group_invitations.group_id', '=', groupId)
       .orderBy('group_invitations.id desc')
       .$if(!!cursor, (eb) => eb.where('group_invitations.id', '<=', cursor!))
@@ -437,7 +437,7 @@ export class GroupsService {
     const data = await this.dbService
       .selectFrom('group_members')
       .where('group_members.group_id', '=', groupId)
-      .leftJoin('users', 'group_members.user_id', 'users.uid')
+      .innerJoin('users', 'group_members.user_id', 'users.uid')
       .$if(moderator != null, (qb) =>
         qb.where('moderator', moderator ? 'is not' : 'is', null),
       )

@@ -35,9 +35,9 @@ export class PrayersService {
     const data = await this.dbService
       .selectFrom('corporate_prayers')
       .where('corporate_prayers.id', '=', prayerId)
-      .leftJoin('users', 'corporate_prayers.user_id', 'users.uid')
+      .innerJoin('users', 'corporate_prayers.user_id', 'users.uid')
       .leftJoin('prayers', 'corporate_prayers.id', 'prayers.corporate_id')
-      .leftJoin('groups', 'corporate_prayers.group_id', 'groups.id')
+      .innerJoin('groups', 'corporate_prayers.group_id', 'groups.id')
       .leftJoin('reminders', 'reminders.id', 'corporate_prayers.reminder_id')
       .selectAll(['corporate_prayers'])
       .groupBy([
@@ -108,7 +108,7 @@ export class PrayersService {
     const data = await this.dbService
       .selectFrom('prayers')
       .where('prayers.id', '=', prayerId)
-      .leftJoin('users', 'prayers.user_id', 'users.uid')
+      .innerJoin('users', 'prayers.user_id', 'users.uid')
       .leftJoin('prayer_prays', 'prayers.id', 'prayer_prays.prayer_id')
       .leftJoin('groups', 'prayers.group_id', 'groups.id')
       .leftJoin(
@@ -449,7 +449,7 @@ export class PrayersService {
     const data = await this.dbService
       .selectFrom('prayer_prays')
       .where('prayer_prays.prayer_id', '=', prayerId)
-      .leftJoin('users', 'users.uid', 'prayer_prays.user_id')
+      .innerJoin('users', 'users.uid', 'prayer_prays.user_id')
       .$if(!!cursor, (eb) => eb.where('prayer_prays.id', '<=', cursor!))
       .orderBy('prayer_prays.id desc')
       .select((eb) =>
@@ -756,7 +756,7 @@ export class PrayersService {
   async fetchJoinStatusFromCorporatePrayer(prayerId: string, userId?: string) {
     const data = await this.dbService
       .selectFrom('corporate_prayers')
-      .leftJoin('groups', 'corporate_prayers.group_id', 'groups.id')
+      .innerJoin('groups', 'corporate_prayers.group_id', 'groups.id')
       .leftJoin('group_members', 'group_members.group_id', 'groups.id')
       .leftJoin('prayers', 'prayers.corporate_id', 'corporate_prayers.id')
       .where('corporate_prayers.id', '=', prayerId)
@@ -766,18 +766,16 @@ export class PrayersService {
           .where('group_members.user_id', '=', userId!)
           .select('group_members.accepted_at'),
       )
-      .select(['groups.membership_type', 'prayers.id as hasPosted'])
-      .groupBy([
-        'corporate_prayers.id',
-        'groups.id',
-        'group_members.id',
-        'prayers.id',
+      .select(({ fn }) => [
+        'groups.membership_type',
+        fn.count<string>('prayers.id').as('hasPosted'),
       ])
+      .groupBy(['corporate_prayers.id', 'groups.id', 'group_members.id'])
       .executeTakeFirst();
     return {
       canView:
         !(data?.membership_type !== 'open' && data?.accepted_at == null) ||
-        data?.hasPosted != null,
+        parseInt(data?.hasPosted ?? '0', 10) > 0,
       canPost: data?.accepted_at == null,
     };
   }
