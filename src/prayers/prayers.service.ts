@@ -213,7 +213,8 @@ export class PrayersService {
     CONCAT (
       -- IF PRAYER IS FROM FOLLOWERS
       CASE
-        WHEN uf.id IS NOT NULL THEN 1
+        WHEN uf.id IS NOT NULL
+        THEN 1
         ELSE 0
       END +
 
@@ -244,13 +245,13 @@ export class PrayersService {
 
       -- TIME PASSES AFTER PRAY POSTED
       CASE
-        WHEN EXTRACT(EPOCH FROM NOW() - MAX(pp.created_at)) < (60 * 60 * 24 * 2) THEN  1 -- 2 DAYS
+        WHEN EXTRACT(EPOCH FROM NOW() - MAX(pp.created_at)) < (60 * 60 * 24 * 2) THEN 5 -- 2 DAYS
         ELSE -3
       END +
 
       -- TIME PASSES AFTER PRAYER POSTED
       CASE
-        WHEN EXTRACT(EPOCH FROM NOW() - prayers.created_at) < (60 * 60 * 24 * 3) THEN 1 -- 3 DAYS
+        WHEN EXTRACT(EPOCH FROM NOW() - prayers.created_at) < (60 * 60 * 24 * 3) THEN 3 -- 3 DAYS
         ELSE 0
       END,
       '_',
@@ -279,7 +280,9 @@ export class PrayersService {
           )
           .leftJoin('prayer_prays as pp', 'pp.prayer_id', 'prayers.id')
           .leftJoin('prayers as op', (join) =>
-            join.onRef('op.id', '!=', 'prayers.id'),
+            join
+              .onRef('op.id', '!=', 'prayers.id')
+              .onRef('op.user_id', '=', 'prayers.user_id'),
           )
           .leftJoin('prayer_prays as opp', (join) =>
             join
@@ -295,7 +298,7 @@ export class PrayersService {
           .clearOrderBy()
           .select(orderOnUser.as('cursor'))
           .orderBy('cursor desc')
-          .$if(!!cursor, (eb) => eb.where(orderOnUser, '<=', cursor!)),
+          .$if(!!cursor, (eb) => eb.having(orderOnUser, '<=', cursor!)),
       )
       .limit(11)
       .execute();
