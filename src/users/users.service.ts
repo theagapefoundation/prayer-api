@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { SelectQueryBuilder, UpdateObject, sql } from 'kysely';
 import { DB } from 'prisma/generated/types';
+import { NotEmptyResource } from 'src/errors/common.error';
 import { KyselyService } from 'src/kysely/kysely.service';
 import { StorageService } from 'src/storage/storage.service';
 
@@ -302,6 +303,66 @@ export class UsersService {
       .values({ user_id: userId, value })
       .onConflict((oc) => oc.columns(['user_id', 'value']).doNothing())
       .execute();
+  }
+
+  async deleteUser(userId: string) {
+    await this.dbService
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .execute(async (trx) => {
+        const { g, cp, gm } = await trx
+          .selectFrom('users')
+          .leftJoin('groups', 'groups.admin_id', 'users.uid')
+          .leftJoin(
+            'corporate_prayers',
+            'corporate_prayers.user_id',
+            'users.uid',
+          )
+          .leftJoin('group_members', 'group_members.user_id', 'users.uid')
+          .where('users.uid', '=', userId)
+          .select(({ fn }) => [
+            fn.countAll<string>('groups').as('g'),
+            fn.countAll<string>('corporate_prayers').as('cp'),
+            fn.countAll<string>('group_members').as('gm'),
+          ])
+          .executeTakeFirstOrThrow();
+        if (
+          parseInt(g ?? '0', 10) > 0 ||
+          parseInt(cp ?? '0', 10) > 0 ||
+          parseInt(gm ?? '0', 10) > 0
+        ) {
+          throw new NotEmptyResource();
+        }
+        trx
+          .deleteFrom('user_follows')
+          .where(({ or, eb }) =>
+            or([
+              eb('user_follows.follower_id', '=', userId),
+              eb('user_follows.following_id', '=', userId),
+            ]),
+          )
+          .executeTakeFirst();
+        trx
+          .deleteFrom('user_fcm_tokens')
+          .where('user_fcm_tokens.user_id', '=', userId)
+          .executeTakeFirst();
+        trx
+          .deleteFrom('notifications')
+          .where('notifications.user_id', '=', userId)
+          .executeTakeFirst();
+        trx
+          .deleteFrom('prayer_prays')
+          .where('prayer_prays.user_id', '=', userId)
+          .executeTakeFirst();
+        trx
+          .deleteFrom('prayers')
+          .where('prayers.user_id', '=', userId)
+          .executeTakeFirst();
+        trx
+          .deleteFrom('users')
+          .where('users.uid', '=', userId)
+          .executeTakeFirst();
+      });
   }
 
   fetchPresignedUrl(data: { profile?: string | null; banner?: string | null }) {

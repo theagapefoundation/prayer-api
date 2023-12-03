@@ -52,3 +52,13 @@ export class BadRequestError extends BaseError {
     super(message, HttpStatus.BAD_REQUEST, 'invalid-parameters');
   }
 }
+
+export class NotEmptyResource extends BaseError {
+  constructor() {
+    super(
+      'User must delete all groups, leave all groups, and have no corporate prayers',
+      HttpStatus.BAD_REQUEST,
+      'not-empty-resource',
+    );
+  }
+}

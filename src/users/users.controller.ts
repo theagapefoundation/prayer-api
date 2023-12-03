@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -47,6 +48,14 @@ export class UsersController {
       data,
       cursor,
     };
+  }
+
+  @Delete()
+  @UseGuards(AuthGuard)
+  @UseInterceptors(ResponseInterceptor)
+  async deleteUser(@User() user: UserEntity) {
+    await this.appService.deleteUser(user.sub);
+    return 'success';
   }
 
   @UseInterceptors(ResponseInterceptor)
