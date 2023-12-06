@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InsertObject, sql } from 'kysely';
 import { KyselyService } from 'src/kysely/kysely.service';
-import { jsonArrayFrom, jsonObjectFrom } from 'kysely/helpers/postgres';
+import { jsonObjectFrom } from 'kysely/helpers/postgres';
 import { StorageService } from 'src/storage/storage.service';
 import { DB } from 'prisma/generated/types';
 
@@ -584,11 +584,27 @@ export class PrayersService {
 
   async deletePrayer(prayerId: string) {
     await this.dbService.transaction().execute(async (trx) => {
+      const paths = await trx
+        .selectFrom('contents')
+        .innerJoin('prayer_contents', (join) =>
+          join
+            .onRef('prayer_contents.content_id', '=', 'contents.id')
+            .on('prayer_contents.prayer_id', '=', prayerId),
+        )
+        .innerJoin('contents', 'contents.id', 'prayer_contents.content_id')
+        .select('contents.path')
+        .execute();
+      Promise.all(
+        paths.map(({ path }) =>
+          this.storageService.publicBucket
+            .file(path)
+            .delete({ ignoreNotFound: true }),
+        ),
+      );
       await trx
         .deleteFrom('prayers')
         .where('prayers.id', '=', prayerId)
         .executeTakeFirst();
-
       await trx
         .deleteFrom('prayer_prays')
         .where('prayer_prays.prayer_id', '=', prayerId)
@@ -617,7 +633,6 @@ export class PrayersService {
     contents,
     ...rest
   }: InsertObject<DB, 'prayers'> & { contents?: number[] | null }) {
-    console.log({ contents, rest });
     return await this.dbService.transaction().execute(async (trx) => {
       const { id } = await trx
         .insertInto('prayers')
@@ -793,27 +808,38 @@ export class PrayersService {
   async fetchJoinStatusFromCorporatePrayer(prayerId: string, userId?: string) {
     const data = await this.dbService
       .selectFrom('corporate_prayers')
-      .innerJoin('groups', 'corporate_prayers.group_id', 'groups.id')
-      .leftJoin('group_members', 'group_members.group_id', 'groups.id')
-      .leftJoin('prayers', 'prayers.corporate_id', 'corporate_prayers.id')
+      .leftJoin('groups', 'corporate_prayers.group_id', 'groups.id')
       .where('corporate_prayers.id', '=', prayerId)
       .$if(!!userId, (qb) =>
         qb
-          .where('prayers.user_id', '=', userId!)
-          .where('group_members.user_id', '=', userId!)
-          .select('group_members.accepted_at'),
+          .leftJoin('group_members', (join) =>
+            join
+              .onRef(
+                'group_members.group_id',
+                '=',
+                'corporate_prayers.group_id',
+              )
+              .on('group_members.user_id', '=', userId!),
+          )
+          .leftJoin('prayers', (join) =>
+            join
+              .onRef('prayers.group_id', '=', 'corporate_prayers.group_id')
+              .on('prayers.user_id', '=', userId!),
+          )
+          .select(({ fn }) => [
+            'group_members.accepted_at',
+            fn.count<string>('prayers.id').as('hasPosted'),
+          ])
+          .groupBy(['group_members.id']),
       )
-      .select(({ fn }) => [
-        'groups.membership_type',
-        fn.count<string>('prayers.id').as('hasPosted'),
-      ])
-      .groupBy(['corporate_prayers.id', 'groups.id', 'group_members.id'])
+      .select(['groups.membership_type', 'corporate_prayers.user_id'])
+      .groupBy(['corporate_prayers.id', 'groups.id'])
       .executeTakeFirstOrThrow();
-    console.log({ data });
     return {
       canView:
         !(data?.membership_type !== 'open' && data?.accepted_at == null) ||
-        parseInt(data?.hasPosted ?? '0', 10) > 0,
+        parseInt(data?.hasPosted ?? '0', 10) > 0 ||
+        data.user_id === userId,
       canPost: data?.accepted_at == null,
     };
   }
