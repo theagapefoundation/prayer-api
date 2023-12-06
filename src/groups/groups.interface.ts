@@ -1,9 +1,9 @@
 import {
+  IsArray,
   IsBoolean,
-  IsBooleanString,
   IsIn,
-  IsJSON,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   MaxLength,
 } from 'class-validator';
@@ -20,8 +20,9 @@ export class CreateGroupDto {
   @IsIn(['open', 'private', 'restricted'])
   membershipType: 'open' | 'private' | 'restricted';
 
+  @IsNumber()
   @IsNotEmpty()
-  banner: string;
+  banner: number;
 }
 
 export class UpdateGroupDto {
@@ -34,12 +35,13 @@ export class UpdateGroupDto {
   description?: string;
 
   @IsOptional()
-  banner?: string;
+  @IsNumber()
+  banner?: number;
 }
 
 export class JoinGroupDto {
-  @IsBooleanString()
-  value: string;
+  @IsBoolean()
+  value: boolean;
 }
 
 export class AcceptRequestGroupDto {
@@ -51,6 +53,6 @@ export class AcceptRequestGroupDto {
 }
 
 export class InviteUserToGroupDto {
-  @IsJSON()
-  value: string;
+  @IsArray()
+  value: string[];
 }

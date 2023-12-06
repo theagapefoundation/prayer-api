@@ -1,10 +1,17 @@
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
-  IsJSON,
+  IsDateString,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsUUID,
+  Matches,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
 
 export class CreateOrUpdateCorporatePrayerDto {
@@ -21,24 +28,33 @@ export class CreateOrUpdateCorporatePrayerDto {
   @IsOptional()
   description?: string;
 
-  @IsJSON()
-  prayers: string;
+  @IsArray()
+  @ArrayMaxSize(10)
+  @ArrayMinSize(1)
+  prayers: string[];
 
   @IsOptional()
+  @IsDateString()
   startedAt?: string;
 
   @IsOptional()
+  @IsDateString()
   endedAt?: string;
 
   @IsOptional()
+  @Matches(/^([0-1]?[0-9]|2[0-3]):([0-5]?[0-9]):([0-5]?[0-9])$/)
   reminderTime?: string;
 
   @IsOptional()
   reminderText?: string;
 
   @IsOptional()
-  @IsJSON()
-  reminderDays?: string;
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @Max(6, { each: true })
+  @ArrayMaxSize(7)
+  reminderDays?: number[];
 }
 
 export class CreatePrayerDto {
@@ -58,7 +74,10 @@ export class CreatePrayerDto {
   value: string;
 
   @IsOptional()
-  media?: string;
+  @IsArray()
+  @IsInt({ each: true })
+  @ArrayMaxSize(5)
+  contents?: number[];
 }
 
 export class CreatePrayerPrayDto {

@@ -104,8 +104,8 @@ export class UsersController {
     try {
       await this.appService.updateUser({
         ...form,
-        profile: form.profile == '' ? null : form.profile,
-        banner: form.banner == '' ? null : form.banner,
+        profile: form.profile === -1 ? null : form.profile,
+        banner: form.banner === -1 ? null : form.banner,
         uid: user.sub,
       });
       return 'success';

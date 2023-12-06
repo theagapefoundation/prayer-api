@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InsertObject, sql } from 'kysely';
 import { KyselyService } from 'src/kysely/kysely.service';
-import { jsonObjectFrom } from 'kysely/helpers/postgres';
+import { jsonArrayFrom, jsonObjectFrom } from 'kysely/helpers/postgres';
 import { StorageService } from 'src/storage/storage.service';
 import { DB } from 'prisma/generated/types';
 
@@ -12,7 +12,7 @@ export class PrayersService {
     private storageService: StorageService,
   ) {}
 
-  minutesToString(minutes) {
+  minutesToString(minutes: number) {
     // Determine the sign
     const sign = minutes >= 0 ? '+' : '-';
 
@@ -36,6 +36,7 @@ export class PrayersService {
       .selectFrom('corporate_prayers')
       .where('corporate_prayers.id', '=', prayerId)
       .innerJoin('users', 'corporate_prayers.user_id', 'users.uid')
+      .leftJoin('contents', 'contents.id', 'users.profile')
       .leftJoin('prayers', 'corporate_prayers.id', 'prayers.corporate_id')
       .innerJoin('groups', 'corporate_prayers.group_id', 'groups.id')
       .leftJoin('reminders', 'reminders.id', 'corporate_prayers.reminder_id')
@@ -43,6 +44,7 @@ export class PrayersService {
       .groupBy([
         'corporate_prayers.id',
         'users.uid',
+        'contents.path',
         'groups.id',
         'reminders.id',
       ])
@@ -73,7 +75,7 @@ export class PrayersService {
             'users.username',
             'users.name',
             'users.uid',
-            'users.profile',
+            'contents.path as profile',
           ]),
         ).as('user'),
         jsonObjectFrom(
@@ -109,6 +111,7 @@ export class PrayersService {
       .selectFrom('prayers')
       .where('prayers.id', '=', prayerId)
       .innerJoin('users', 'prayers.user_id', 'users.uid')
+      .leftJoin('contents as profile', 'profile.id', 'users.profile')
       .leftJoin('prayer_prays', 'prayers.id', 'prayer_prays.prayer_id')
       .leftJoin('groups', 'prayers.group_id', 'groups.id')
       .leftJoin(
@@ -116,7 +119,15 @@ export class PrayersService {
         'prayers.corporate_id',
         'corporate_prayers.id',
       )
-      .groupBy(['prayers.id', 'users.uid', 'groups.id', 'corporate_prayers.id'])
+      .leftJoin('prayer_contents', 'prayer_contents.prayer_id', 'prayers.id')
+      .leftJoin('contents', 'prayer_contents.content_id', 'contents.id')
+      .groupBy([
+        'prayers.id',
+        'users.uid',
+        'groups.id',
+        'corporate_prayers.id',
+        'profile.path',
+      ])
       .selectAll(['prayers'])
       .select(({ fn }) => [
         fn
@@ -130,16 +141,18 @@ export class PrayersService {
             'users.uid',
             'users.name',
             'users.username',
-            'users.profile',
+            'profile.path as profile',
           ]),
         ).as('user'),
+        sql<DB['contents'][]>`jsonb_agg(contents)`.as('contents'),
         jsonObjectFrom(
           eb
             .selectFrom('prayer_prays')
             .leftJoin('users', 'prayer_prays.user_id', 'users.uid')
+            .leftJoin('contents as profile', 'profile.id', 'users.profile')
             .select([
               'users.uid',
-              'users.profile',
+              'profile.path as profile',
               'users.username',
               'users.name',
               'prayer_prays.created_at',
@@ -193,9 +206,14 @@ export class PrayersService {
     }
     return {
       ...data,
-      media: data?.media
-        ? this.storageService.publicBucket.file(data.media).publicUrl()
-        : null,
+      contents: data.contents
+        ?.filter((content) => !!content)
+        .map((content) => ({
+          ...content,
+          path: this.storageService.publicBucket
+            .file(content?.path ?? '')
+            .publicUrl(),
+        })),
       prays_count: parseInt(data?.prays_count ?? '0', 10),
       user_id: data?.anon && data.user_id !== userId ? null : data?.user_id,
       user: data?.anon && data.user_id !== userId ? null : data?.user,
@@ -312,13 +330,13 @@ export class PrayersService {
   async fetchPrayers({
     groupId,
     userId,
-    requestingUserId,
+    requestUser,
     cursor,
     corporateId,
     hideAnonymous,
   }: {
     groupId?: string;
-    requestingUserId?: string;
+    requestUser?: string;
     userId?: string;
     corporateId?: string;
     cursor?: string;
@@ -330,7 +348,7 @@ export class PrayersService {
       .$if(!!userId, (eb) => eb.where('user_id', '=', userId!))
       .$if(!!corporateId, (eb) => eb.where('corporate_id', '=', corporateId!))
       .$if(!!hideAnonymous, (eb) => eb.where('anon', '=', false))
-      .$if(requestingUserId == null, (eb) =>
+      .$if(requestUser == null, (eb) =>
         eb.where((qb) =>
           qb.exists(
             qb
@@ -340,7 +358,7 @@ export class PrayersService {
           ),
         ),
       )
-      .$if(!!requestingUserId, (qb) =>
+      .$if(!!requestUser, (qb) =>
         qb.where(({ eb, or, exists }) =>
           or([
             eb('prayers.group_id', 'is', null),
@@ -354,7 +372,7 @@ export class PrayersService {
               eb
                 .selectFrom('group_members')
                 .whereRef('group_members.group_id', '=', 'prayers.group_id')
-                .where('group_members.user_id', '=', requestingUserId!)
+                .where('group_members.user_id', '=', requestUser!)
                 .where('group_members.accepted_at', 'is not', null),
             ),
           ]),
@@ -453,6 +471,7 @@ export class PrayersService {
       .selectFrom('prayer_prays')
       .where('prayer_prays.prayer_id', '=', prayerId)
       .innerJoin('users', 'users.uid', 'prayer_prays.user_id')
+      .leftJoin('contents as profile', 'profile.id', 'users.profile')
       .$if(!!cursor, (eb) => eb.where('prayer_prays.id', '<=', cursor!))
       .orderBy('prayer_prays.id desc')
       .select((eb) =>
@@ -461,7 +480,7 @@ export class PrayersService {
             'users.uid',
             'users.name',
             'users.username',
-            'users.profile',
+            'profile.path as profile',
           ]),
         ).as('user'),
       )
@@ -595,31 +614,47 @@ export class PrayersService {
     user_id,
     group_id,
     corporate_id,
+    contents,
     ...rest
-  }: InsertObject<DB, 'prayers'>) {
-    return this.dbService
-      .insertInto('prayers')
-      .values((eb) => ({
-        user_id: eb
-          .selectFrom('users')
-          .where('users.uid', '=', user_id)
-          .select('users.uid'),
-        group_id: group_id
-          ? eb
-              .selectFrom('groups')
-              .where('groups.id', '=', group_id)
-              .select('groups.id')
-          : null,
-        corporate_id: corporate_id
-          ? eb
-              .selectFrom('corporate_prayers')
-              .where('corporate_prayers.id', '=', corporate_id)
-              .select('corporate_prayers.id')
-          : null,
-        ...rest,
-      }))
-      .returning('prayers.id')
-      .executeTakeFirstOrThrow();
+  }: InsertObject<DB, 'prayers'> & { contents?: number[] | null }) {
+    console.log({ contents, rest });
+    return await this.dbService.transaction().execute(async (trx) => {
+      const { id } = await trx
+        .insertInto('prayers')
+        .values((eb) => ({
+          user_id: eb
+            .selectFrom('users')
+            .where('users.uid', '=', user_id)
+            .select('users.uid'),
+          group_id: group_id
+            ? eb
+                .selectFrom('groups')
+                .where('groups.id', '=', group_id)
+                .select('groups.id')
+            : null,
+          corporate_id: corporate_id
+            ? eb
+                .selectFrom('corporate_prayers')
+                .where('corporate_prayers.id', '=', corporate_id)
+                .select('corporate_prayers.id')
+            : null,
+          ...rest,
+        }))
+        .returning('prayers.id')
+        .executeTakeFirstOrThrow();
+      if (contents && contents.length > 0) {
+        trx
+          .insertInto('prayer_contents')
+          .values(
+            contents.map((content) => ({
+              prayer_id: id,
+              content_id: content,
+            })),
+          )
+          .executeTakeFirst();
+      }
+      return { id };
+    });
   }
 
   async fetchLatestPrayerPray(prayerId: string, userId: string) {
@@ -661,7 +696,6 @@ export class PrayersService {
   }: InsertObject<DB, 'corporate_prayers'> & {
     reminders?: Omit<InsertObject<DB, 'reminders'>, 'corporate_id'> | null;
   }) {
-    console.log({ reminders });
     let remindersId: number | undefined | null =
       reminders === null ? null : undefined;
     return this.dbService.transaction().execute(async (trx) => {
@@ -774,7 +808,8 @@ export class PrayersService {
         fn.count<string>('prayers.id').as('hasPosted'),
       ])
       .groupBy(['corporate_prayers.id', 'groups.id', 'group_members.id'])
-      .executeTakeFirst();
+      .executeTakeFirstOrThrow();
+    console.log({ data });
     return {
       canView:
         !(data?.membership_type !== 'open' && data?.accepted_at == null) ||

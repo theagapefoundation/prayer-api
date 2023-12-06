@@ -15,6 +15,9 @@ export type contents = {
   id: Generated<number>;
   user_id: string;
   created_at: Generated<Timestamp>;
+  path: string;
+  alt: string | null;
+  processed: Generated<boolean>;
 };
 export type corporate_prayers = {
   id: Generated<string>;
@@ -47,7 +50,7 @@ export type groups = {
   name: string;
   description: string;
   admin_id: string;
-  banner: string;
+  banner: number;
   membership_type: membership_type;
   updated_at: Generated<Timestamp>;
   created_at: Generated<Timestamp>;
@@ -62,6 +65,11 @@ export type notifications = {
   target_user_id: string | null;
   created_at: Generated<Timestamp>;
 };
+export type prayer_contents = {
+  id: Generated<string>;
+  content_id: number;
+  prayer_id: string;
+};
 export type prayer_prays = {
   id: Generated<number>;
   user_id: string;
@@ -75,7 +83,6 @@ export type prayers = {
   group_id: string | null;
   anon: Generated<boolean>;
   value: string;
-  media: string | null;
   created_at: Generated<Timestamp>;
   corporate_id: string | null;
 };
@@ -104,10 +111,10 @@ export type users = {
   email: string;
   created_at: Generated<Timestamp>;
   bio: string | null;
-  profile: string | null;
+  profile: number | null;
   name: string;
   updated_at: Generated<Timestamp>;
-  banner: string | null;
+  banner: number | null;
 };
 export type DB = {
   contents: contents;
@@ -116,6 +123,7 @@ export type DB = {
   group_members: group_members;
   groups: groups;
   notifications: notifications;
+  prayer_contents: prayer_contents;
   prayer_prays: prayer_prays;
   prayers: prayers;
   reminders: reminders;

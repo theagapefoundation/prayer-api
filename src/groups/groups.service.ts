@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { sql } from 'kysely';
 import { jsonObjectFrom } from 'kysely/helpers/postgres';
+import {
+  OperationNotAllowedError,
+  TargetNotFoundError,
+} from 'src/errors/common.error';
 import { KyselyService } from 'src/kysely/kysely.service';
 import { StorageService } from 'src/storage/storage.service';
 import { v4 } from 'uuid';
@@ -18,7 +22,13 @@ export class GroupsService {
     const data = await this.dbService
       .selectFrom('groups')
       .where('groups.id', '=', groupId)
+      .leftJoin('contents as banner', 'banner.id', 'groups.banner')
       .innerJoin('users as admin', 'admin.uid', 'groups.admin_id')
+      .leftJoin(
+        'contents as admin_content',
+        'admin_content.id',
+        'admin.profile',
+      )
       .innerJoin('group_members as members', 'members.group_id', 'groups.id')
       .leftJoin('prayers', 'prayers.group_id', 'groups.id')
       .leftJoin('group_invitations', 'group_invitations.group_id', 'groups.id')
@@ -35,15 +45,23 @@ export class GroupsService {
           .coalesce(fn.count<string>(sql`DISTINCT prayers.id`), sql<string>`0`)
           .as('prayers_count'),
       ])
-      .select('group_invitations.created_at as invited_at')
-      .groupBy(['groups.id', 'admin.uid'])
-      .groupBy(['groups.id', 'admin.uid', 'invited_at'])
+      .select([
+        'group_invitations.created_at as invited_at',
+        'banner.path as banner',
+      ])
+      .groupBy([
+        'groups.id',
+        'admin.uid',
+        'invited_at',
+        'banner.path',
+        'admin_content.path',
+      ])
       .select((eb) =>
         jsonObjectFrom(
           eb.selectNoFrom([
             'admin.uid',
             'admin.name',
-            'admin.profile',
+            'admin_content.path as profile',
             'admin.username',
           ]),
         ).as('admin'),
@@ -100,9 +118,17 @@ export class GroupsService {
     const data = await this.dbService
       .selectFrom('group_invitations')
       .innerJoin('groups', 'group_invitations.group_id', 'groups.id')
+      .innerJoin('contents as banner', 'banner.id', 'groups.banner')
       .innerJoin('users as admin', 'admin.uid', 'groups.admin_id')
+      .leftJoin('contents as user_content', 'user_content.id', 'admin.profile')
       .innerJoin('group_members', 'group_members.group_id', 'groups.id')
-      .groupBy(['group_invitations.id', 'groups.id', 'admin.uid'])
+      .groupBy([
+        'group_invitations.id',
+        'groups.id',
+        'admin.uid',
+        'banner.path',
+        'user_content.path',
+      ])
       .where('group_invitations.user_id', '=', userId)
       .$if(!!cursor, (eb) => eb.where('group_invitations.id', '<=', cursor!))
       .where('group_members.accepted_at', 'is not', null)
@@ -112,7 +138,7 @@ export class GroupsService {
           eb.selectNoFrom([
             'admin.uid',
             'admin.username',
-            'admin.profile',
+            'user_content.path as profile',
             'admin.name',
           ]),
         ).as('admin'),
@@ -131,7 +157,7 @@ export class GroupsService {
         'groups.name',
         'groups.admin_id',
         'groups.membership_type',
-        'groups.banner',
+        'banner.path as banner',
       ])
       .limit(11)
       .execute();
@@ -163,8 +189,14 @@ export class GroupsService {
     const data = await this.dbService
       .selectFrom('groups')
       .innerJoin('users as admin', 'admin.uid', 'groups.admin_id')
+      .leftJoin(
+        'contents as admin_content',
+        'admin_content.id',
+        'admin.profile',
+      )
+      .innerJoin('contents as banner', 'banner.id', 'groups.banner')
       .innerJoin('group_members', 'group_members.group_id', 'groups.id')
-      .groupBy(['groups.id', 'admin.uid'])
+      .groupBy(['groups.id', 'admin.uid', 'admin_content.path', 'banner.path'])
       .where('groups.membership_type', '!=', 'private')
       .$if(!!requestingUserId, (qb) =>
         qb
@@ -209,7 +241,7 @@ export class GroupsService {
           eb.selectNoFrom([
             'admin.uid',
             'admin.username',
-            'admin.profile',
+            'admin_content.path as profile',
             'admin.name',
           ]),
         ).as('admin'),
@@ -227,7 +259,7 @@ export class GroupsService {
         'groups.name',
         'groups.admin_id',
         'groups.membership_type',
-        'groups.banner',
+        'banner.path as banner',
       ])
       .limit(11)
       .execute();
@@ -254,7 +286,7 @@ export class GroupsService {
     description: string;
     admin: string;
     membershipType: 'open' | 'restricted' | 'private';
-    banner: string;
+    banner: number;
   }) {
     const newId = v4();
     await this.dbService.transaction().execute(async (trx) => {
@@ -288,83 +320,88 @@ export class GroupsService {
     groupId: string;
     name?: string;
     description?: string;
-    banner?: string;
+    banner?: number;
+    requestUser: string;
   }) {
-    const { banner } = await this.dbService
-      .selectFrom('groups')
-      .where('groups.id', '=', body.groupId)
-      .select(['banner'])
-      .executeTakeFirstOrThrow();
-    if (body.banner !== undefined) {
-      this.storageService.publicBucket
-        .file(banner)
-        .delete({ ignoreNotFound: true });
-    }
-    await this.dbService
-      .updateTable('groups')
-      .where('groups.id', '=', body.groupId)
-      .set({
-        name: body.name,
-        description: body.description,
-        banner: body.banner,
-        updated_at: new Date(),
-      })
-      .executeTakeFirst();
+    this.dbService.transaction().execute(async (trx) => {
+      const { admin_id, banner } = await trx
+        .selectFrom('groups')
+        .innerJoin('contents', 'contents.id', 'groups.banner')
+        .where('groups.id', '=', body.groupId)
+        .select(['groups.admin_id', 'contents.path as banner'])
+        .executeTakeFirstOrThrow();
+      if (admin_id !== body.requestUser) {
+        throw new OperationNotAllowedError('Only admin can make an update');
+      }
+      if (body.banner !== undefined) {
+        this.storageService.publicBucket
+          .file(banner)
+          .delete({ ignoreNotFound: true });
+      }
+      await this.dbService
+        .updateTable('groups')
+        .where('groups.id', '=', body.groupId)
+        .set({
+          name: body.name,
+          description: body.description,
+          banner: body.banner,
+          updated_at: new Date(),
+        })
+        .executeTakeFirst();
+    });
   }
 
   async joinGroup(body: { groupId: string; userId: string }) {
-    const data = await this.dbService
-      .insertInto('group_members')
-      .values((eb) => ({
-        user_id: eb
-          .selectFrom('users')
-          .where('users.uid', '=', body.userId)
-          .select('users.uid'),
-        group_id: eb
-          .selectFrom('groups')
-          .where('groups.id', '=', body.groupId)
-          .select('groups.id'),
-        accepted_at: eb
-          .selectFrom('groups')
-          .where('groups.id', '=', body.groupId)
-          .select((qb) =>
-            qb
-              .case()
-              .when('groups.membership_type', '=', 'open')
-              .then(sql<Date>`timezone('utc', now())`)
-              .when(
-                sql`
-                EXISTS(
-                  SELECT gi.id
-                  FROM group_invitations gi
-                  WHERE gi.group_id = ${body.groupId} AND gi.user_id = ${body.userId}
-                )
-              `,
-              )
-              .then(sql<Date>`timezone('utc', now())`)
-              .else(sql<null>`NULL`)
-              .end()
-              .as('accepted_at'),
-          ),
-      }))
-      .onConflict((oc) =>
-        oc.columns(['group_id', 'user_id']).doUpdateSet((eb) => ({
+    const data = await this.dbService.transaction().execute(async (trx) => {
+      const groupExists = await trx
+        .selectFrom('groups')
+        .where('groups.id', '=', body.groupId)
+        .select('groups.id')
+        .executeTakeFirstOrThrow();
+      if (!groupExists) {
+        throw new TargetNotFoundError('Unable to find the group');
+      }
+      const userExists = await trx
+        .selectFrom('users')
+        .where('users.uid', '=', body.userId)
+        .select('users.username')
+        .executeTakeFirstOrThrow();
+      if (!userExists) {
+        throw new TargetNotFoundError('Unable to find the user');
+      }
+      const result = await trx
+        .insertInto('group_members')
+        .values((eb) => ({
+          user_id: body.userId,
+          group_id: body.groupId,
           accepted_at: eb
             .selectFrom('groups')
             .where('groups.id', '=', body.groupId)
             .select((qb) =>
               qb
                 .case()
-                .when('membership_type', '=', 'open')
+                .when('groups.membership_type', '=', 'open')
+                .then(sql<Date>`timezone('utc', now())`)
+                .when(
+                  sql`
+                EXISTS(
+                  SELECT gi.id
+                  FROM group_invitations gi
+                  WHERE gi.group_id = ${body.groupId} AND gi.user_id = ${body.userId}
+                )
+              `,
+                )
                 .then(sql<Date>`timezone('utc', now())`)
                 .else(sql<null>`NULL`)
                 .end()
                 .as('accepted_at'),
             ),
-        })),
-      )
-      .returning('accepted_at')
-      .executeTakeFirstOrThrow();
+        }))
+        .onConflict((oc) => oc.columns(['group_id', 'user_id']).doNothing())
+        .returning('accepted_at')
+        .executeTakeFirstOrThrow();
+      return result;
+    });
     this.dbService
       .deleteFrom('group_invitations')
       .where('user_id', '=', body.userId)
@@ -373,29 +410,44 @@ export class GroupsService {
     return data;
   }
 
-  async leaveGroup(body: { groupId: string; userId: string }) {
-    await this.dbService
-      .deleteFrom('group_members')
-      .where('group_id', '=', body.groupId)
-      .where((eb) =>
-        eb.and([
-          eb('user_id', '=', body.userId),
-          eb.exists(
-            eb
-              .selectFrom('groups')
-              .where('admin_id', '!=', body.userId)
-              .where('user_id', '=', body.userId),
-          ),
-        ]),
-      )
-      .returning('group_members.id')
-      .executeTakeFirstOrThrow();
+  async leaveGroup(body: {
+    groupId: string;
+    userId: string;
+    requestUser: string;
+  }) {
+    this.dbService.transaction().execute(async (trx) => {
+      const { admin_id } = await trx
+        .selectFrom('groups')
+        .where('groups.id', '=', body.groupId)
+        .select('groups.admin_id')
+        .executeTakeFirstOrThrow();
+      if (admin_id === body.requestUser) {
+        throw new OperationNotAllowedError('Admin cannot leave the group');
+      }
+      await trx
+        .deleteFrom('group_members')
+        .where('group_id', '=', body.groupId)
+        .where((eb) =>
+          eb.and([
+            eb('user_id', '=', body.userId),
+            eb.exists(
+              eb
+                .selectFrom('groups')
+                .where('admin_id', '!=', body.userId)
+                .where('user_id', '=', body.userId),
+            ),
+          ]),
+        )
+        .returning('group_members.id')
+        .executeTakeFirstOrThrow();
+    });
   }
 
   async fetchPendingInvites(groupId: string, cursor?: number) {
     const data = await this.dbService
       .selectFrom('group_invitations')
       .innerJoin('users', 'group_invitations.user_id', 'users.uid')
+      .leftJoin('contents', 'contents.id', 'users.profile')
       .where('group_invitations.group_id', '=', groupId)
       .orderBy('group_invitations.id desc')
       .$if(!!cursor, (eb) => eb.where('group_invitations.id', '<=', cursor!))
@@ -404,7 +456,7 @@ export class GroupsService {
         'group_invitations.id',
         'users.uid',
         'users.name',
-        'users.profile',
+        'contents.path as profile',
         'users.username',
       ])
       .execute();
@@ -438,6 +490,7 @@ export class GroupsService {
       .selectFrom('group_members')
       .where('group_members.group_id', '=', groupId)
       .innerJoin('users', 'group_members.user_id', 'users.uid')
+      .leftJoin('contents', 'contents.id', 'users.profile')
       .$if(moderator != null, (qb) =>
         qb.where('moderator', moderator ? 'is not' : 'is', null),
       )
@@ -463,7 +516,7 @@ export class GroupsService {
         'users.uid',
         'users.name',
         'users.username',
-        'users.profile',
+        'contents.path as profile',
         'group_members.moderator',
       ])
       .select(
@@ -486,38 +539,54 @@ export class GroupsService {
     };
   }
 
-  async deleteGroup(groupId: string) {
-    const files: string[] = [];
-    await this.dbService.transaction().execute(async (trx) => {
-      const [banners, medias] = await Promise.all([
-        trx
-          .deleteFrom('groups')
+  async deleteGroup(groupId: string, requestUser: string) {
+    await this.dbService
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .execute(async (trx) => {
+        const { admin_id } = await trx
+          .selectFrom('groups')
           .where('groups.id', '=', groupId)
-          .returning('groups.banner')
-          .execute(),
-        trx
-          .deleteFrom('prayers')
-          .where('prayers.group_id', '=', groupId)
-          .returning('prayers.media')
-          .execute(),
-        trx
-          .deleteFrom('group_members')
-          .where('group_members.group_id', '=', groupId)
-          .execute(),
-        trx
-          .deleteFrom('corporate_prayers')
-          .where('corporate_prayers.group_id', '=', groupId)
-          .execute(),
-      ]);
-      files.push(
-        ...(banners
-          .map(({ banner }) => banner)
-          .filter((value) => !!value) as string[]),
-        ...(medias
-          .map(({ media }) => media)
-          .filter((value) => !!value) as string[]),
-      );
-    });
+          .select(['groups.admin_id'])
+          .executeTakeFirstOrThrow();
+        if (admin_id !== requestUser) {
+          throw new OperationNotAllowedError('Only admin can delete a group');
+        }
+        const { banner, c, p } = await trx
+          .selectFrom('groups')
+          .where('groups.id', '=', groupId)
+          .innerJoin('contents as banner', 'banner.id', 'groups.banner')
+          .leftJoin(
+            'corporate_prayers',
+            'corporate_prayers.group_id',
+            'groups.id',
+          )
+          .leftJoin('prayers', 'prayers.group_id', 'groups.id')
+          .select(({ fn }) => [
+            'banner.path as banner',
+            fn.count<string>('corporate_prayers.id').as('c'),
+            fn.count<string>('prayers.id').as('p'),
+          ])
+          .executeTakeFirstOrThrow();
+        if (parseInt(c || '0') > 0 || parseInt(p || '0') > 0) {
+          throw new OperationNotAllowedError(
+            'groups must have no prayers and corporate prayers',
+          );
+        }
+        await Promise.all([
+          trx
+            .deleteFrom('groups')
+            .where('groups.id', '=', groupId)
+            .executeTakeFirstOrThrow(),
+          trx
+            .deleteFrom('group_members')
+            .where('group_members.group_id', '=', groupId)
+            .execute(),
+        ]);
+        this.storageService.publicBucket
+          .file(banner)
+          .delete({ ignoreNotFound: true });
+      });
   }
 
   async checkModerator(groupId: string, userId: string) {
@@ -533,57 +602,104 @@ export class GroupsService {
   async handleRequest({
     groupId,
     userId,
+    requestUser,
   }: {
     groupId: string;
     userId: string;
+    requestUser: string;
   }) {
-    return this.dbService
-      .updateTable('group_members')
-      .where('group_id', '=', groupId)
-      .where('user_id', '=', userId)
-      .set({ accepted_at: new Date() })
-      .executeTakeFirstOrThrow();
+    return await this.dbService.transaction().execute(async (trx) => {
+      const { moderator } = await trx
+        .selectFrom('group_members')
+        .where('group_members.user_id', '=', requestUser)
+        .select(['group_members.moderator'])
+        .executeTakeFirstOrThrow();
+      if (!moderator) {
+        throw new OperationNotAllowedError(
+          'Only moderators are able to accept the requests',
+        );
+      }
+      return trx
+        .updateTable('group_members')
+        .where('group_id', '=', groupId)
+        .where('user_id', '=', userId)
+        .set({ accepted_at: new Date() })
+        .executeTakeFirstOrThrow();
+    });
   }
 
   async handleModerator({
     groupId,
     userId,
     value,
+    requestUser,
   }: {
     groupId: string;
     userId: string;
     value?: boolean;
+    requestUser: string;
   }) {
-    return this.dbService
-      .updateTable('group_members')
-      .where('group_id', '=', groupId)
-      .where('user_id', '=', userId)
-      .set({ moderator: value ? new Date() : null })
-      .executeTakeFirstOrThrow();
+    return await this.dbService.transaction().execute(async (trx) => {
+      const { admin_id } = await trx
+        .selectFrom('groups')
+        .where('groups.id', '=', groupId)
+        .select(['groups.admin_id'])
+        .executeTakeFirstOrThrow();
+      if (requestUser !== admin_id) {
+        throw new OperationNotAllowedError(
+          'Only admin can promote user to moderator',
+        );
+      }
+      if (userId === admin_id) {
+        throw new OperationNotAllowedError(
+          'You cannot change admin permission',
+        );
+      }
+      return this.dbService
+        .updateTable('group_members')
+        .where('group_id', '=', groupId)
+        .where('user_id', '=', userId)
+        .set({ moderator: value ? new Date() : null })
+        .executeTakeFirstOrThrow();
+    });
   }
 
   async inviteUser({
     groupId,
     userIds,
     value,
+    requestUser,
   }: {
     groupId: string;
     userIds: string[];
     value: boolean;
+    requestUser: string;
   }) {
-    if (value) {
-      return this.dbService
-        .insertInto('group_invitations')
-        .values(
-          userIds.map((userId) => ({ group_id: groupId, user_id: userId })),
-        )
-        .onConflict((oc) => oc.columns(['group_id', 'user_id']).doNothing())
+    return this.dbService.transaction().execute(async (trx) => {
+      const { moderator } = await trx
+        .selectFrom('group_members')
+        .where('group_members.user_id', '=', requestUser)
+        .select(['group_members.moderator'])
+        .executeTakeFirstOrThrow();
+      if (!moderator) {
+        throw new OperationNotAllowedError(
+          'Only moderator can send invitation',
+        );
+      }
+      if (value) {
+        return trx
+          .insertInto('group_invitations')
+          .values(
+            userIds.map((userId) => ({ group_id: groupId, user_id: userId })),
+          )
+          .onConflict((oc) => oc.columns(['group_id', 'user_id']).doNothing())
+          .executeTakeFirst();
+      }
+      return trx
+        .deleteFrom('group_invitations')
+        .where('group_id', '=', groupId)
+        .where('user_id', 'in', userIds)
         .executeTakeFirst();
-    }
-    return this.dbService
-      .deleteFrom('group_invitations')
-      .where('group_id', '=', groupId)
-      .where('user_id', 'in', userIds)
-      .executeTakeFirst();
+    });
   }
 }

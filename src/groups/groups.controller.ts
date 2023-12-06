@@ -15,7 +15,6 @@ import { ResponseInterceptor } from 'src/response.interceptor';
 import { GroupsService } from './groups.service';
 import { CreateGroupDto, UpdateGroupDto } from './groups.interface';
 import { AuthGuard } from 'src/auth/auth.guard';
-import { OperationNotAllowedError } from 'src/errors/common.error';
 
 @Controller('groups')
 export class GroupsController {
@@ -98,15 +97,12 @@ export class GroupsController {
     @Body() body: UpdateGroupDto,
     @Param('groupId') groupId: string,
   ) {
-    const data = await this.appService.fetchGroup(groupId);
-    if (data?.admin_id !== user.sub) {
-      throw new OperationNotAllowedError('Only admin can make an update');
-    }
     await this.appService.updateGroup({
       name: body.name,
       description: body.description,
-      banner: body.banner,
+      banner: body.banner || undefined,
       groupId,
+      requestUser: user.sub,
     });
     return this.appService.fetchGroup(groupId, user?.sub);
   }
@@ -118,11 +114,7 @@ export class GroupsController {
     @User() user: UserEntity,
     @Param('groupId') groupId: string,
   ) {
-    const data = await this.appService.fetchGroup(groupId);
-    if (data?.admin_id !== user.sub) {
-      throw new OperationNotAllowedError('Only admin can delete a group');
-    }
-    await this.appService.deleteGroup(groupId);
+    await this.appService.deleteGroup(groupId, user.sub);
     return 'success';
   }
 }

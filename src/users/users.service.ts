@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { SelectQueryBuilder, UpdateObject, sql } from 'kysely';
+import { UpdateObject, sql } from 'kysely';
 import { DB } from 'prisma/generated/types';
-import { NotEmptyResource } from 'src/errors/common.error';
+import {
+  NotEmptyResource,
+  OperationNotAllowedError,
+} from 'src/errors/common.error';
 import { KyselyService } from 'src/kysely/kysely.service';
 import { StorageService } from 'src/storage/storage.service';
 
@@ -48,6 +51,7 @@ export class UsersService {
   }) {
     const data = await this.dbService
       .selectFrom('users')
+      .leftJoin('contents as profile', 'profile.id', 'users.profile')
       .$if(!!excludeGroupId, (qb) =>
         qb
           .leftJoin('group_members', (join) =>
@@ -65,7 +69,12 @@ export class UsersService {
           ]),
         ),
       )
-      .select(['users.profile', 'users.uid', 'users.username', 'users.name'])
+      .select([
+        'profile.path as profile',
+        'users.uid',
+        'users.username',
+        'users.name',
+      ])
       .select(
         sql<string>`CONCAT(EXTRACT(EPOCH from users.created_at), users.uid)`.as(
           'cursor',
@@ -119,6 +128,8 @@ export class UsersService {
           .select('user_follows.created_at as followed_at')
           .groupBy('user_follows.id'),
       )
+      .leftJoin('contents as profile', 'profile.id', 'users.profile')
+      .leftJoin('contents as banner', 'banner.id', 'users.banner')
       .leftJoin(
         'user_follows as followers',
         'followers.follower_id',
@@ -131,8 +142,9 @@ export class UsersService {
       )
       .leftJoin('prayers', 'prayers.user_id', 'users.uid')
       .leftJoin('prayer_prays', 'prayer_prays.user_id', 'users.uid')
-      .groupBy('users.uid')
+      .groupBy(['users.uid', 'profile.path', 'banner.path'])
       .selectAll(['users'])
+      .select(['profile.path as profile', 'banner.path as banner'])
       .select(({ fn }) => [
         fn
           .coalesce(
@@ -181,28 +193,34 @@ export class UsersService {
     follower?: string;
     cursor?: number;
   }) {
-    let query: SelectQueryBuilder<DB, 'users' | 'user_follows', object>;
-    if (follower) {
-      query = this.dbService
-        .selectFrom('user_follows')
-        .innerJoin('users', 'user_follows.following_id', 'users.uid')
-        .where('follower_id', '=', follower);
-    } else if (following) {
-      query = this.dbService
-        .selectFrom('user_follows')
-        .innerJoin('users', 'user_follows.follower_id', 'users.uid')
-        .where('following_id', '=', following);
-    } else {
-      return [];
-    }
-    const data = await query
-      .select([
-        'user_follows.id',
-        'users.uid',
-        'users.name',
-        'users.profile',
-        'users.username',
-      ])
+    const data = await this.dbService
+      .selectFrom('user_follows')
+      .$if(!!follower, (eb) =>
+        eb
+          .innerJoin('users', 'users.uid', 'user_follows.following_id')
+          .leftJoin('contents as profile', 'profile.id', 'users.profile')
+          .where('follower_id', '=', follower!)
+          .select([
+            'user_follows.id',
+            'users.uid',
+            'users.name',
+            'profile.path as profile',
+            'users.username',
+          ]),
+      )
+      .$if(!!following, (eb) =>
+        eb
+          .innerJoin('users', 'users.uid', 'user_follows.follower_id')
+          .leftJoin('contents as profile', 'profile.id', 'users.profile')
+          .where('following_id', '=', following!)
+          .select([
+            'user_follows.id',
+            'users.uid',
+            'users.name',
+            'profile.path as profile',
+            'users.username',
+          ]),
+      )
       .orderBy('user_follows.id desc')
       .limit(11)
       .$if(!!cursor, (eb) => eb.where('id', '<=', cursor!))
@@ -223,16 +241,12 @@ export class UsersService {
     name,
     username,
     bio,
-    profile,
-    banner,
   }: {
     uid: string;
     email: string;
     name: string;
     username: string;
     bio?: string;
-    profile?: string;
-    banner?: string;
   }) {
     await this.dbService
       .insertInto('users')
@@ -242,8 +256,6 @@ export class UsersService {
         name,
         username,
         bio,
-        profile,
-        banner,
       })
       .executeTakeFirstOrThrow();
   }
@@ -258,30 +270,36 @@ export class UsersService {
   }: Omit<UpdateObject<DB, 'users'>, 'uid'> & { uid: string }) {
     const data = await this.dbService
       .selectFrom('users')
+      .leftJoin('contents as profile', 'profile.id', 'users.profile')
+      .leftJoin('contents as banner', 'banner.id', 'users.banner')
       .where('uid', '=', uid)
-      .selectAll()
-      .executeTakeFirst();
-    if (data == null) {
-      return;
-    }
-    Promise.all([
-      profile !== undefined &&
-        data.profile &&
-        this.storageService.publicBucket
-          .file(data.profile)
-          .delete({ ignoreNotFound: true }),
-      banner !== undefined &&
-        data.banner &&
-        this.storageService.publicBucket
-          .file(data.banner)
-          .delete({ ignoreNotFound: true }),
-    ]);
+      .select(['profile.path as profile', 'banner.path as banner'])
+      .executeTakeFirstOrThrow();
     if (
       [name, username, bio, profile, banner]
         .map((v) => v === undefined)
         .every((v) => v)
     ) {
       return;
+    }
+    const [p, b] = await Promise.all([
+      profile &&
+        this.dbService
+          .selectFrom('contents')
+          .where('contents.id', '=', profile! as number)
+          .select(['contents.user_id'])
+          .executeTakeFirstOrThrow(),
+      banner &&
+        this.dbService
+          .selectFrom('contents')
+          .where('contents.id', '=', banner! as number)
+          .select(['contents.user_id'])
+          .executeTakeFirstOrThrow(),
+    ]);
+    if ((p && p.user_id !== uid) || (b && b.user_id !== uid)) {
+      throw new OperationNotAllowedError(
+        'You can only use a photo uploaded by you',
+      );
     }
     await this.dbService
       .updateTable('users')
@@ -295,6 +313,18 @@ export class UsersService {
         updated_at: new Date(),
       })
       .executeTakeFirstOrThrow();
+    Promise.all([
+      profile !== undefined &&
+        data.profile &&
+        this.storageService.publicBucket
+          .file(data.profile)
+          .delete({ ignoreNotFound: true }),
+      banner !== undefined &&
+        data.banner &&
+        this.storageService.publicBucket
+          .file(data.banner)
+          .delete({ ignoreNotFound: true }),
+    ]);
   }
 
   async createNewFcmTokens(userId: string, value: string) {
@@ -310,7 +340,7 @@ export class UsersService {
       .transaction()
       .setIsolationLevel('repeatable read')
       .execute(async (trx) => {
-        const { g, cp, gm } = await trx
+        const { g, cp, gm, profile, banner } = await trx
           .selectFrom('users')
           .leftJoin('groups', 'groups.admin_id', 'users.uid')
           .leftJoin(
@@ -318,9 +348,13 @@ export class UsersService {
             'corporate_prayers.user_id',
             'users.uid',
           )
+          .leftJoin('contents as profile', 'profile.id', 'users.profile')
+          .leftJoin('contents as banner', 'banner.id', 'users.banner')
           .leftJoin('group_members', 'group_members.user_id', 'users.uid')
           .where('users.uid', '=', userId)
           .select(({ fn }) => [
+            'profile.path as profile',
+            'banner.path as banner',
             fn.countAll<string>('groups').as('g'),
             fn.countAll<string>('corporate_prayers').as('cp'),
             fn.countAll<string>('group_members').as('gm'),
@@ -333,6 +367,14 @@ export class UsersService {
         ) {
           throw new NotEmptyResource();
         }
+        profile &&
+          this.storageService.publicBucket
+            .file(profile)
+            .delete({ ignoreNotFound: true });
+        banner &&
+          this.storageService.publicBucket
+            .file(banner)
+            .delete({ ignoreNotFound: true });
         trx
           .deleteFrom('user_follows')
           .where(({ or, eb }) =>

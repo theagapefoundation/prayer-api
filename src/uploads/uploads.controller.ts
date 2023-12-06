@@ -16,10 +16,34 @@ export class UploadsController {
   constructor(private appService: UploadsService) {}
 
   @UseGuards(AuthGuard)
+  @Get('multiple')
+  async getUploadUrls(
+    @User() user: UserEntity,
+    @Query('name') names: string[],
+  ) {
+    if (!names) {
+      throw new HttpException(
+        'fileName must be provided',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const extensions = names.map((name) => name.split('.').pop());
+    const data = await Promise.all(
+      extensions.map((extension) =>
+        this.appService.createUploadUrl({
+          extension: extension ? `.${extension}` : '',
+          userId: user.sub,
+        }),
+      ),
+    );
+    return { data, createdAt: new Date().toISOString() };
+  }
+
+  @UseGuards(AuthGuard)
   @Get()
   async getUploadUrl(
     @User() user: UserEntity,
-    @Query('fileName') newFileName: string,
+    @Query('name') newFileName: string,
   ) {
     if (!newFileName) {
       throw new HttpException(
@@ -28,10 +52,10 @@ export class UploadsController {
       );
     }
     const extension = newFileName.split('.').pop();
-    const { fileName, url } = await this.appService.createUploadUrl({
+    const { path, url, id } = await this.appService.createUploadUrl({
       extension: extension ? `.${extension}` : '',
       userId: user.sub,
     });
-    return { fileName, url, createdAt: new Date().toISOString() };
+    return { path, url, id, createdAt: new Date().toISOString() };
   }
 }

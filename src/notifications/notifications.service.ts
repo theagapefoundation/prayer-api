@@ -16,7 +16,13 @@ export class NotificationsService {
     const data = await this.dbService
       .selectFrom('notifications')
       .leftJoin('users as target', 'target.uid', 'notifications.target_user_id')
+      .leftJoin('contents', 'contents.id', 'target.profile')
       .leftJoin('groups', 'groups.id', 'notifications.group_id')
+      .leftJoin(
+        'contents as group_content',
+        'group_content.id',
+        'groups.banner',
+      )
       .selectAll(['notifications'])
       .select((eb) =>
         eb
@@ -27,7 +33,7 @@ export class NotificationsService {
               eb.selectNoFrom([
                 'target.uid',
                 'target.name',
-                'target.profile',
+                'contents.path as profile',
                 'target.username',
               ]),
             ),
@@ -46,7 +52,7 @@ export class NotificationsService {
                 'groups.name',
                 'groups.admin_id',
                 'groups.membership_type',
-                'groups.banner',
+                'group_content.path as banner',
               ]),
             ),
           )

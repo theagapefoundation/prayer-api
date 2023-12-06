@@ -20,7 +20,6 @@ import {
 } from './groups.interface';
 import { NoResultError } from 'kysely';
 import {
-  BadRequestError,
   OperationNotAllowedError,
   TargetNotFoundError,
 } from 'src/errors/common.error';
@@ -48,14 +47,7 @@ export class GroupController {
     @Body() { value }: JoinGroupDto,
   ) {
     try {
-      const data = await this.appService.fetchGroup(groupId);
-      if (data == null) {
-        throw new TargetNotFoundError('Unable to find the group to join');
-      }
-      if (data.admin_id === user.sub) {
-        throw new OperationNotAllowedError('Admin cannot leave the group');
-      }
-      if (value === 'true') {
+      if (value) {
         const { accepted_at } = await this.appService.joinGroup({
           groupId,
           userId: user.sub,
@@ -67,7 +59,11 @@ export class GroupController {
         );
         return accepted_at;
       }
-      await this.appService.leaveGroup({ groupId, userId: user.sub });
+      await this.appService.leaveGroup({
+        groupId,
+        userId: user.sub,
+        requestUser: user.sub,
+      });
       return 'success';
     } catch (e) {
       if (e instanceof NoResultError) {
@@ -161,12 +157,11 @@ export class GroupController {
     @Body() { userId }: AcceptRequestGroupDto,
     @User() user: UserEntity,
   ) {
-    if (!(await this.appService.checkModerator(groupId, user.sub))) {
-      throw new OperationNotAllowedError(
-        'Only moderators are able to see the requests',
-      );
-    }
-    await this.appService.handleRequest({ groupId, userId });
+    await this.appService.handleRequest({
+      groupId,
+      userId,
+      requestUser: user.sub,
+    });
     this.notificationService.notifyGroupRequestAccepted(groupId, userId);
     return 'success';
   }
@@ -178,19 +173,11 @@ export class GroupController {
     @Body() { userId, value }: AcceptRequestGroupDto,
     @User() user: UserEntity,
   ) {
-    const data = await this.appService.fetchGroup(groupId);
-    if (data?.admin_id !== user.sub) {
-      throw new OperationNotAllowedError(
-        'Only admin can promote user to moderator',
-      );
-    }
-    if (userId === data?.admin_id) {
-      throw new OperationNotAllowedError('You cannot change admin permission');
-    }
     await this.appService.handleModerator({
       groupId,
       userId,
       value,
+      requestUser: user.sub,
     });
     this.notificationService.notifyMemberPromoted(groupId, userId);
     return 'success';
@@ -204,15 +191,12 @@ export class GroupController {
     @User() user: UserEntity,
     @Body() { value }: InviteUserToGroupDto,
   ) {
-    const data = await this.appService.fetchGroup(groupId, user.sub);
-    if (data?.moderator == null) {
-      throw new OperationNotAllowedError('Only moderator can send invitation');
-    }
-    value = JSON.parse(value);
-    if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
-      throw new BadRequestError('`value` must be an array of uid');
-    }
-    await this.appService.inviteUser({ groupId, userIds: value, value: true });
+    await this.appService.inviteUser({
+      groupId,
+      userIds: value,
+      value: true,
+      requestUser: user.sub,
+    });
     return 'success';
   }
 
@@ -224,15 +208,12 @@ export class GroupController {
     @User() user: UserEntity,
     @Body() { value }: InviteUserToGroupDto,
   ) {
-    const data = await this.appService.fetchGroup(groupId, user.sub);
-    if (data?.moderator == null) {
-      throw new OperationNotAllowedError('Only moderator can send invitation');
-    }
-    value = JSON.parse(value);
-    if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
-      throw new BadRequestError('`value` must be an array of uid');
-    }
-    await this.appService.inviteUser({ groupId, userIds: value, value: false });
+    await this.appService.inviteUser({
+      groupId,
+      userIds: value,
+      value: false,
+      requestUser: user.sub,
+    });
     return 'success';
   }
 }

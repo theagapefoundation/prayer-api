@@ -49,7 +49,7 @@ export class PrayersController {
   ) {
     const { data, cursor: newCursor } = await this.appService.fetchPrayers({
       userId,
-      requestingUserId: user?.sub,
+      requestUser: user?.sub,
       cursor,
       hideAnonymous: userId !== user?.sub,
     });
@@ -93,7 +93,7 @@ export class PrayersController {
 
     const { data, cursor: newCursor } = await this.appService.fetchPrayers({
       groupId,
-      requestingUserId: user?.sub,
+      requestUser: user?.sub,
       cursor,
     });
     return {
@@ -154,7 +154,7 @@ export class PrayersController {
     }
     const { data, cursor: newCursor } = await this.appService.fetchPrayers({
       corporateId: prayerId,
-      requestingUserId: user?.sub,
+      requestUser: user?.sub,
       cursor,
     });
     return {
@@ -228,9 +228,9 @@ export class PrayersController {
     if (data.user_id !== user.sub) {
       throw new OperationNotAllowedError('Only owner can delete the post');
     }
-    if (data.media) {
-      this.storageService.removeFile(data.media);
-    }
+    // if (data.media) {
+    //   this.storageService.removeFile(data.media);
+    // }
     await this.appService.deletePrayer(prayerId);
     return 'success';
   }
@@ -275,7 +275,7 @@ export class PrayersController {
       corporate_id: form.corporateId,
       anon: form.anon,
       value: form.value,
-      media: form.media,
+      contents: form.contents,
     });
     this.notificationService.notifyPrayerCreated({
       corporateId: form.corporateId,
@@ -327,42 +327,6 @@ export class PrayersController {
         'Only moderator can post the corporate prayer',
       );
     }
-    let prayers = form.prayers ? JSON.parse(form.prayers) : null;
-    if (prayers) {
-      if (
-        !Array.isArray(prayers) ||
-        prayers.some((value) => typeof value !== 'string')
-      ) {
-        throw new HttpException(
-          'prayers must be an array of string',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-      if (prayers.length === 0) {
-        prayers = null;
-      } else if (prayers.length > 10) {
-        throw new HttpException(
-          'prayers can have up to 10 prayers',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-    }
-    const reminderDays = form.reminderDays
-      ? JSON.parse(form.reminderDays)
-      : null;
-    if (reminderDays) {
-      if (
-        !Array.isArray(reminderDays) ||
-        reminderDays.some(
-          (value) => typeof value !== 'number' || value < 0 || value > 6,
-        )
-      ) {
-        throw new HttpException(
-          'reminderDays must be an array of number with value between 0 and 6',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-    }
     if (form.startedAt != null && form.endedAt != null) {
       if (
         moment(form.endedAt)
@@ -376,12 +340,12 @@ export class PrayersController {
       }
     }
     const { id } = await this.appService.createCorporatePrayer({
-      id: form.corporateId,
+      id: form.corporateId ?? undefined,
       user_id: user.sub,
       group_id: form.groupId,
       title: form.title,
       description: form.description,
-      prayers: JSON.stringify(prayers),
+      prayers: JSON.stringify(form.prayers),
       started_at:
         form.startedAt == null
           ? null
@@ -392,10 +356,10 @@ export class PrayersController {
           : moment(form.endedAt).endOf('day').toDate(),
       created_at: new Date(),
       reminders:
-        reminderDays == null
+        form.reminderDays == null
           ? undefined
           : {
-              days: form.reminderDays!,
+              days: form.reminderDays!.join(','),
               time:
                 form.reminderTime! + this.appService.minutesToString(timezone!),
               value: form.reminderText!,

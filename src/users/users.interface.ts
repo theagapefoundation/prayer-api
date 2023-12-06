@@ -2,6 +2,7 @@ import {
   IsBoolean,
   IsEmail,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   Matches,
   MaxLength,
@@ -22,11 +23,13 @@ export class UpdateUserDto {
   @MaxLength(200)
   bio?: string;
 
+  @IsNumber()
   @IsOptional()
-  profile?: string;
+  profile?: number;
 
+  @IsNumber()
   @IsOptional()
-  banner?: string;
+  banner?: number;
 }
 
 export class CreateFcmDto {
