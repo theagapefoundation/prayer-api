@@ -30,6 +30,7 @@ model users {
   name       String   @db.VarChar(30)
   updated_at DateTime @default(now()) @db.Timestamptz(6)
   banner     Int?     @db.Integer
+  verse_id   Int?     @db.Integer
 
   @@index([username])
 }

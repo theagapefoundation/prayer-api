@@ -128,7 +128,7 @@ export class PrayersService {
       )
       .leftJoin(
         'bible_verses',
-        'bible_verses.id',
+        'bible_verses.verse_id',
         'prayer_bible_verses.verse_id',
       )
       .groupBy([

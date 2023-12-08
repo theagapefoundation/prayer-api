@@ -267,6 +267,7 @@ export class UsersService {
     bio,
     profile,
     banner,
+    verse_id,
   }: Omit<UpdateObject<DB, 'users'>, 'uid'> & { uid: string }) {
     const data = await this.dbService
       .selectFrom('users')
@@ -311,6 +312,7 @@ export class UsersService {
         profile,
         banner,
         updated_at: new Date(),
+        verse_id,
       })
       .executeTakeFirstOrThrow();
     Promise.all([

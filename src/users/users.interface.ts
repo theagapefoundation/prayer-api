@@ -30,6 +30,10 @@ export class UpdateUserDto {
   @IsNumber()
   @IsOptional()
   banner?: number;
+
+  @IsNumber()
+  @IsOptional()
+  verseId?: number;
 }
 
 export class CreateFcmDto {

@@ -204,6 +204,7 @@ export type users = {
   name: string;
   updated_at: Generated<Timestamp>;
   banner: number | null;
+  verse_id: number | null;
 };
 export type DB = {
   bible_translations: bible_translations;
