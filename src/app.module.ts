@@ -10,6 +10,7 @@ import { PrayersModule } from './prayers/prayers.module';
 import { FirebaseModule } from './firebase/firebase.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SentryInterceptor, SentryModule } from '@ntegral/nestjs-sentry';
+import { BiblesModule } from './bibles/bibles.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { SentryInterceptor, SentryModule } from '@ntegral/nestjs-sentry';
     PrayersModule,
     FirebaseModule,
     NotificationsModule,
+    BiblesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: UserGuard },

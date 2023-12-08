@@ -78,6 +78,12 @@ export class CreatePrayerDto {
   @IsInt({ each: true })
   @ArrayMaxSize(5)
   contents?: number[];
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  @ArrayMaxSize(5)
+  verses?: number[];
 }
 
 export class CreatePrayerPrayDto {

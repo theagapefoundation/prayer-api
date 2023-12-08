@@ -11,6 +11,90 @@ export const membership_type = {
 } as const;
 export type membership_type =
   (typeof membership_type)[keyof typeof membership_type];
+export const bible_book = {
+  genesis: 'genesis',
+  exodus: 'exodus',
+  leviticus: 'leviticus',
+  numbers: 'numbers',
+  deuteronomy: 'deuteronomy',
+  joshua: 'joshua',
+  judges: 'judges',
+  ruth: 'ruth',
+  first_samuel: 'first_samuel',
+  second_samuel: 'second_samuel',
+  first_kings: 'first_kings',
+  second_kings: 'second_kings',
+  first_chronicles: 'first_chronicles',
+  second_chronicles: 'second_chronicles',
+  ezra: 'ezra',
+  nehemiah: 'nehemiah',
+  esther: 'esther',
+  job: 'job',
+  psalms: 'psalms',
+  proverbs: 'proverbs',
+  ecclesiastes: 'ecclesiastes',
+  song_of_solomon: 'song_of_solomon',
+  isaiah: 'isaiah',
+  jeremiah: 'jeremiah',
+  lamentations: 'lamentations',
+  ezekiel: 'ezekiel',
+  daniel: 'daniel',
+  hosea: 'hosea',
+  joel: 'joel',
+  amos: 'amos',
+  obadiah: 'obadiah',
+  jonah: 'jonah',
+  micah: 'micah',
+  nahum: 'nahum',
+  habakkuk: 'habakkuk',
+  zephaniah: 'zephaniah',
+  haggai: 'haggai',
+  zechariah: 'zechariah',
+  malachi: 'malachi',
+  matthew: 'matthew',
+  mark: 'mark',
+  luke: 'luke',
+  john: 'john',
+  acts: 'acts',
+  romans: 'romans',
+  first_corinthians: 'first_corinthians',
+  second_corinthians: 'second_corinthians',
+  galatians: 'galatians',
+  ephesians: 'ephesians',
+  philippians: 'philippians',
+  colossians: 'colossians',
+  first_thessalonians: 'first_thessalonians',
+  second_thessalonians: 'second_thessalonians',
+  first_timothy: 'first_timothy',
+  second_timothy: 'second_timothy',
+  titus: 'titus',
+  philemon: 'philemon',
+  hebrews: 'hebrews',
+  james: 'james',
+  first_peter: 'first_peter',
+  second_peter: 'second_peter',
+  first_john: 'first_john',
+  second_john: 'second_john',
+  third_john: 'third_john',
+  jude: 'jude',
+  revelation: 'revelation',
+} as const;
+export type bible_book = (typeof bible_book)[keyof typeof bible_book];
+export type bible_translations = {
+  id: Generated<number>;
+  lang: string;
+  abbreviation: string;
+  name: string;
+};
+export type bible_verses = {
+  id: Generated<number>;
+  translation_id: number;
+  verse_id: Generated<number>;
+  book: bible_book;
+  chapter: number;
+  verse: number;
+  value: string;
+};
 export type contents = {
   id: Generated<number>;
   user_id: string;
@@ -65,6 +149,11 @@ export type notifications = {
   target_user_id: string | null;
   created_at: Generated<Timestamp>;
 };
+export type prayer_bible_verses = {
+  id: Generated<string>;
+  verse_id: number;
+  prayer_id: string;
+};
 export type prayer_contents = {
   id: Generated<string>;
   content_id: number;
@@ -117,12 +206,15 @@ export type users = {
   banner: number | null;
 };
 export type DB = {
+  bible_translations: bible_translations;
+  bible_verses: bible_verses;
   contents: contents;
   corporate_prayers: corporate_prayers;
   group_invitations: group_invitations;
   group_members: group_members;
   groups: groups;
   notifications: notifications;
+  prayer_bible_verses: prayer_bible_verses;
   prayer_contents: prayer_contents;
   prayer_prays: prayer_prays;
   prayers: prayers;

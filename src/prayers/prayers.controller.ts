@@ -228,9 +228,6 @@ export class PrayersController {
     if (data.user_id !== user.sub) {
       throw new OperationNotAllowedError('Only owner can delete the post');
     }
-    // if (data.media) {
-    //   this.storageService.removeFile(data.media);
-    // }
     await this.appService.deletePrayer(prayerId);
     return 'success';
   }
@@ -276,6 +273,7 @@ export class PrayersController {
       anon: form.anon,
       value: form.value,
       contents: form.contents,
+      verses: form.verses,
     });
     this.notificationService.notifyPrayerCreated({
       corporateId: form.corporateId,

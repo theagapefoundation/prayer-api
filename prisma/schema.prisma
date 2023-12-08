@@ -95,6 +95,15 @@ model prayer_contents {
   @@index([content_id, prayer_id])
 }
 
+model prayer_bible_verses {
+  id        String @id @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  verse_id  Int    @db.Integer
+  prayer_id String @db.Uuid
+
+  @@unique([verse_id, prayer_id])
+  @@index([verse_id, prayer_id])
+}
+
 model corporate_prayers {
   id          String    @id @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id     String    @db.VarChar(40)
@@ -149,4 +158,93 @@ enum membership_type {
   open
   restricted
   private
+}
+
+// BIBLE
+model bible_translations {
+  id           Int    @id @unique @default(autoincrement())
+  lang         String @db.VarChar(10)
+  abbreviation String @db.VarChar(100)
+  name         String @db.VarChar(100)
+}
+
+model bible_verses {
+  id             Int        @id @unique @default(autoincrement())
+  translation_id Int        @db.Integer
+  verse_id       Int        @default(0) @db.Integer
+  book           bible_book
+  chapter        Int        @db.SmallInt
+  verse          Int        @db.SmallInt
+  value          String     @db.VarChar(1000)
+
+  @@unique([translation_id, book, chapter, verse])
+}
+
+enum bible_book {
+  genesis
+  exodus
+  leviticus
+  numbers
+  deuteronomy
+  joshua
+  judges
+  ruth
+  first_samuel
+  second_samuel
+  first_kings
+  second_kings
+  first_chronicles
+  second_chronicles
+  ezra
+  nehemiah
+  esther
+  job
+  psalms
+  proverbs
+  ecclesiastes
+  song_of_solomon
+  isaiah
+  jeremiah
+  lamentations
+  ezekiel
+  daniel
+  hosea
+  joel
+  amos
+  obadiah
+  jonah
+  micah
+  nahum
+  habakkuk
+  zephaniah
+  haggai
+  zechariah
+  malachi
+  matthew
+  mark
+  luke
+  john
+  acts
+  romans
+  first_corinthians
+  second_corinthians
+  galatians
+  ephesians
+  philippians
+  colossians
+  first_thessalonians
+  second_thessalonians
+  first_timothy
+  second_timothy
+  titus
+  philemon
+  hebrews
+  james
+  first_peter
+  second_peter
+  first_john
+  second_john
+  third_john
+  jude
+  revelation
 }

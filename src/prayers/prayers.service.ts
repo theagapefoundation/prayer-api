@@ -121,6 +121,16 @@ export class PrayersService {
       )
       .leftJoin('prayer_contents', 'prayer_contents.prayer_id', 'prayers.id')
       .leftJoin('contents', 'prayer_contents.content_id', 'contents.id')
+      .leftJoin(
+        'prayer_bible_verses',
+        'prayer_bible_verses.prayer_id',
+        'prayers.id',
+      )
+      .leftJoin(
+        'bible_verses',
+        'bible_verses.id',
+        'prayer_bible_verses.verse_id',
+      )
       .groupBy([
         'prayers.id',
         'users.uid',
@@ -147,6 +157,9 @@ export class PrayersService {
             'profile.path as profile',
           ]),
         ).as('user'),
+        sql<
+          DB['bible_verses'][]
+        >`array_agg(DISTINCT(bible_verses.verse_id))`.as('verses'),
         sql<DB['contents'][]>`jsonb_agg(DISTINCT(contents))`.as('contents'),
         jsonObjectFrom(
           eb
@@ -217,6 +230,7 @@ export class PrayersService {
             .file(content?.path ?? '')
             .publicUrl(),
         })),
+      verses: data.verses?.filter((verse) => !!verse),
       prays_count: parseInt(data?.prays_count ?? '0', 10),
       user_id: data?.anon && data.user_id !== userId ? null : data?.user_id,
       user: data?.anon && data.user_id !== userId ? null : data?.user,
@@ -594,7 +608,6 @@ export class PrayersService {
             .onRef('prayer_contents.content_id', '=', 'contents.id')
             .on('prayer_contents.prayer_id', '=', prayerId),
         )
-        .innerJoin('contents', 'contents.id', 'prayer_contents.content_id')
         .select('contents.path')
         .execute();
       Promise.all(
@@ -604,6 +617,14 @@ export class PrayersService {
             .delete({ ignoreNotFound: true }),
         ),
       );
+      await trx
+        .deleteFrom('prayer_contents')
+        .where('prayer_id', '=', prayerId)
+        .executeTakeFirst();
+      await trx
+        .deleteFrom('prayer_bible_verses')
+        .where('prayer_id', '=', prayerId)
+        .executeTakeFirst();
       await trx
         .deleteFrom('prayers')
         .where('prayers.id', '=', prayerId)
@@ -634,8 +655,12 @@ export class PrayersService {
     group_id,
     corporate_id,
     contents,
+    verses,
     ...rest
-  }: InsertObject<DB, 'prayers'> & { contents?: number[] | null }) {
+  }: InsertObject<DB, 'prayers'> & {
+    contents?: number[] | null;
+    verses?: number[] | null;
+  }) {
     return await this.dbService.transaction().execute(async (trx) => {
       const { id } = await trx
         .insertInto('prayers')
@@ -667,6 +692,17 @@ export class PrayersService {
             contents.map((content) => ({
               prayer_id: id,
               content_id: content,
+            })),
+          )
+          .executeTakeFirst();
+      }
+      if (verses && verses.length > 0) {
+        trx
+          .insertInto('prayer_bible_verses')
+          .values(
+            verses.map((verse) => ({
+              prayer_id: id,
+              verse_id: verse,
             })),
           )
           .executeTakeFirst();
