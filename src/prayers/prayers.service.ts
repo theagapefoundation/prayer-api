@@ -131,7 +131,10 @@ export class PrayersService {
       .selectAll(['prayers'])
       .select(({ fn }) => [
         fn
-          .coalesce(fn.count<string>('prayer_prays.id'), sql<string>`0`)
+          .coalesce(
+            fn.count<string>(sql`DISTINCT(prayer_prays.id)`),
+            sql<string>`0`,
+          )
           .as('prays_count'),
         fn.max('prayer_prays.created_at').as('has_prayed'),
       ])
@@ -144,7 +147,7 @@ export class PrayersService {
             'profile.path as profile',
           ]),
         ).as('user'),
-        sql<DB['contents'][]>`jsonb_agg(contents)`.as('contents'),
+        sql<DB['contents'][]>`jsonb_agg(DISTINCT(contents))`.as('contents'),
         jsonObjectFrom(
           eb
             .selectFrom('prayer_prays')
