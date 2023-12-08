@@ -11,10 +11,6 @@ export class KyselyService extends Kysely<DB> {
       dialect: new PostgresDialect({
         pool: new Pool({
           connectionString: configService.getOrThrow('DATABASE_URL'),
-          ssl: {
-            rejectUnauthorized: true,
-            ca: configService.getOrThrow('DATABASE_CA_CERT'),
-          },
         }),
       }),
     });
