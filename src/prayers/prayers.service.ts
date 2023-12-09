@@ -126,7 +126,7 @@ export class PrayersService {
         'prayer_bible_verses.prayer_id',
         'prayers.id',
       )
-      .innerJoin(
+      .leftJoin(
         'bible_verses',
         'bible_verses.verse_id',
         'prayer_bible_verses.verse_id',
