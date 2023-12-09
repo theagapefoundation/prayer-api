@@ -150,7 +150,7 @@ export type notifications = {
   created_at: Generated<Timestamp>;
 };
 export type prayer_bible_verses = {
-  id: Generated<string>;
+  id: Generated<number>;
   verse_id: number;
   prayer_id: string;
 };

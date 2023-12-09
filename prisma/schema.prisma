@@ -97,7 +97,7 @@ model prayer_contents {
 }
 
 model prayer_bible_verses {
-  id        String @id @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id        Int    @id @unique @default(autoincrement())
   verse_id  Int    @db.Integer
   prayer_id String @db.Uuid
 
