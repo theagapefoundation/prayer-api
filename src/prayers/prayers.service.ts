@@ -126,7 +126,7 @@ export class PrayersService {
         'prayer_bible_verses.prayer_id',
         'prayers.id',
       )
-      .leftJoin(
+      .innerJoin(
         'bible_verses',
         'bible_verses.verse_id',
         'prayer_bible_verses.verse_id',
@@ -157,9 +157,9 @@ export class PrayersService {
             'profile.path as profile',
           ]),
         ).as('user'),
-        sql<
-          DB['bible_verses'][]
-        >`array_agg(DISTINCT(bible_verses.verse_id))`.as('verses'),
+        sql<DB['bible_verses'][]>`
+        array_agg(bible_verses.verse_id ORDER BY prayer_bible_verses.id ASC)
+        `.as('verses'),
         sql<DB['contents'][]>`jsonb_agg(DISTINCT(contents))`.as('contents'),
         jsonObjectFrom(
           eb
@@ -230,7 +230,7 @@ export class PrayersService {
             .file(content?.path ?? '')
             .publicUrl(),
         })),
-      verses: data.verses?.filter((verse) => !!verse),
+      verses: [...new Set(data.verses?.filter((verse) => !!verse))],
       prays_count: parseInt(data?.prays_count ?? '0', 10),
       user_id: data?.anon && data.user_id !== userId ? null : data?.user_id,
       user: data?.anon && data.user_id !== userId ? null : data?.user,
