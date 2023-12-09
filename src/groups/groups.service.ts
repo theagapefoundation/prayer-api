@@ -567,6 +567,7 @@ export class GroupsService {
             fn.count<string>('corporate_prayers.id').as('c'),
             fn.count<string>('prayers.id').as('p'),
           ])
+          .groupBy(['banner.path'])
           .executeTakeFirstOrThrow();
         if (parseInt(c || '0') > 0 || parseInt(p || '0') > 0) {
           throw new OperationNotAllowedError(
