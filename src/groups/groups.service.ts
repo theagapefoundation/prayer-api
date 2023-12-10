@@ -257,6 +257,7 @@ export class GroupsService {
       .select([
         'groups.id',
         'groups.name',
+        'groups.description',
         'groups.admin_id',
         'groups.membership_type',
         'banner.path as banner',
