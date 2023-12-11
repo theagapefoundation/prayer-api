@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { credential, messaging } from 'firebase-admin';
@@ -71,6 +72,9 @@ export class FirebaseService {
           )
           .execute();
       }
-    } catch (e) {}
+    } catch (e) {
+      Sentry.captureException(e);
+      console.error(e);
+    }
   }
 }
