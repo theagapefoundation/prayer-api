@@ -112,13 +112,13 @@ export class PrayersService {
       .where('prayers.id', '=', prayerId)
       .innerJoin('users', 'prayers.user_id', 'users.uid')
       .leftJoin('contents as profile', 'profile.id', 'users.profile')
-      .leftJoin('prayer_prays', 'prayers.id', 'prayer_prays.prayer_id')
       .leftJoin('groups', 'prayers.group_id', 'groups.id')
       .leftJoin(
         'corporate_prayers',
         'prayers.corporate_id',
         'corporate_prayers.id',
       )
+      .leftJoin('prayer_prays', 'prayers.id', 'prayer_prays.prayer_id')
       .leftJoin('prayer_contents', 'prayer_contents.prayer_id', 'prayers.id')
       .leftJoin('contents', 'prayer_contents.content_id', 'contents.id')
       .leftJoin(
@@ -138,6 +138,17 @@ export class PrayersService {
         'corporate_prayers.id',
         'profile.path',
       ])
+      .$if(!!userId, (eb) =>
+        eb
+          .leftJoin('prayer_prays as user_prayed', (join) =>
+            join
+              .onRef('user_prayed.prayer_id', '=', 'prayers.id')
+              .on('prayer_prays.user_id', '=', userId!),
+          )
+          .select(({ fn }) =>
+            fn.max('user_prayed.created_at').as('has_prayed'),
+          ),
+      )
       .selectAll(['prayers'])
       .select(({ fn }) => [
         fn
@@ -146,7 +157,6 @@ export class PrayersService {
             sql<string>`0`,
           )
           .as('prays_count'),
-        fn.max('prayer_prays.created_at').as('has_prayed'),
       ])
       .select((eb) => [
         jsonObjectFrom(
