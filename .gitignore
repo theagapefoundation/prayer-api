@@ -38,3 +38,6 @@ lerna-debug.log*
 .env
 /cert
 prayer-google-credential.json
+
+# Sentry Config File
+.sentryclirc
