@@ -6,6 +6,8 @@ COPY . .
 
 RUN yarn install
 
+ARG SENTRY_AUTH_TOKEN
+
 RUN yarn build
 
 FROM node:lts-alpine as prod
