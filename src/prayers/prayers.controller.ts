@@ -357,7 +357,7 @@ export class PrayersController {
         form.reminderDays == null
           ? undefined
           : {
-              days: form.reminderDays!.join(','),
+              days: JSON.stringify(form.reminderDays),
               time:
                 form.reminderTime! + this.appService.minutesToString(timezone!),
               value: form.reminderText!,
