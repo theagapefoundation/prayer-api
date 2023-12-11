@@ -765,19 +765,6 @@ export class PrayersService {
           .executeTakeFirstOrThrow();
         remindersId = _remindersId;
       }
-      if (rest.id != null) {
-        const { reminder_id } = await trx
-          .selectFrom('corporate_prayers')
-          .select('corporate_prayers.reminder_id')
-          .where('corporate_prayers.id', '=', rest.id as string)
-          .executeTakeFirstOrThrow();
-        if (reminder_id != null) {
-          trx
-            .deleteFrom('reminders')
-            .where('reminders.id', '=', reminder_id)
-            .executeTakeFirst();
-        }
-      }
       const { id } = await trx
         .insertInto('corporate_prayers')
         .values((eb) => ({
@@ -804,6 +791,20 @@ export class PrayersService {
         )
         .returning(['corporate_prayers.id'])
         .executeTakeFirstOrThrow();
+      if (rest.id != null) {
+        const { reminder_id } = await trx
+          .selectFrom('corporate_prayers')
+          .select('corporate_prayers.reminder_id')
+          .where('corporate_prayers.id', '=', rest.id as string)
+          .executeTakeFirstOrThrow();
+        if (reminder_id != null) {
+          trx
+            .deleteFrom('reminders')
+            .where('reminders.id', '=', reminder_id)
+            .executeTakeFirst();
+        }
+      }
+
       return { id };
     });
   }
