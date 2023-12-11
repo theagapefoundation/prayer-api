@@ -37,12 +37,12 @@ export class GroupsService {
       .select(({ fn }) => [
         fn
           .coalesce(
-            fn.count<string>(sql`DISTINCT members.user_id`),
+            fn.count<string>(sql`DISTINCT(members.user_id)`),
             sql<string>`0`,
           )
           .as('members_count'),
         fn
-          .coalesce(fn.count<string>(sql`DISTINCT prayers.id`), sql<string>`0`)
+          .coalesce(fn.count<string>(sql`DISTINCT(prayers.id)`), sql<string>`0`)
           .as('prayers_count'),
       ])
       .select([
@@ -146,7 +146,7 @@ export class GroupsService {
       .select(({ fn }) =>
         fn
           .coalesce(
-            fn.count<string>(sql`DISTINCT group_members.user_id`),
+            fn.count<string>(sql`DISTINCT(group_members.user_id)`),
             sql<string>`0`,
           )
           .as('members_count'),
@@ -249,7 +249,7 @@ export class GroupsService {
       .select(({ fn }) =>
         fn
           .coalesce(
-            fn.count<string>(sql`DISTINCT group_members.user_id`),
+            fn.count<string>(sql`DISTINCT(group_members.user_id)`),
             sql<string>`0`,
           )
           .as('members_count'),
