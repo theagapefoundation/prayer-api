@@ -416,7 +416,7 @@ export class GroupsService {
     userId: string;
     requestUser: string;
   }) {
-    this.dbService.transaction().execute(async (trx) => {
+    return this.dbService.transaction().execute(async (trx) => {
       const { admin_id } = await trx
         .selectFrom('groups')
         .where('groups.id', '=', body.groupId)

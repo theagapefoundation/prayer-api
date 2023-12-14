@@ -248,7 +248,7 @@ export class UsersService {
     username: string;
     bio?: string;
   }) {
-    await this.dbService
+    return this.dbService
       .insertInto('users')
       .values({
         uid,
