@@ -19,7 +19,7 @@ export class UploadsController {
   @Get('multiple')
   async getUploadUrls(
     @User() user: UserEntity,
-    @Query('name') names: string[],
+    @Query('name') names: string | string[],
   ) {
     if (!names) {
       throw new HttpException(
@@ -27,7 +27,9 @@ export class UploadsController {
         HttpStatus.BAD_REQUEST,
       );
     }
-    const extensions = names.map((name) => name.split('.').pop());
+    const extensions = Array.isArray(names)
+      ? names.map((name) => name.split('.').pop())
+      : [names.split('.').pop()];
     const data = await Promise.all(
       extensions.map((extension) =>
         this.appService.createUploadUrl({
