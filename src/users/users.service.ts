@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { auth } from 'firebase-admin';
 import { UpdateObject, sql } from 'kysely';
 import { DB } from 'prisma/generated/types';
 import {
@@ -354,6 +355,7 @@ export class UsersService {
           .leftJoin('contents as banner', 'banner.id', 'users.banner')
           .leftJoin('group_members', 'group_members.user_id', 'users.uid')
           .where('users.uid', '=', userId)
+          .groupBy(['profile.path', 'banner.path'])
           .select(({ fn }) => [
             'profile.path as profile',
             'banner.path as banner',
@@ -407,6 +409,7 @@ export class UsersService {
           .where('users.uid', '=', userId)
           .executeTakeFirst();
       });
+    await auth().deleteUser(userId);
   }
 
   fetchPresignedUrl(data: { profile?: string | null; banner?: string | null }) {
