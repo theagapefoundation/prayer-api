@@ -3,9 +3,16 @@ import * as Sentry from '@sentry/node';
 import { AppModule } from './app.module';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { TimeoutInterceptor } from './timeout.interceptor';
+import {
+  FastifyAdapter,
+  NestFastifyApplication,
+} from '@nestjs/platform-fastify';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestFastifyApplication>(
+    AppModule,
+    new FastifyAdapter(),
+  );
 
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
@@ -22,6 +29,6 @@ async function bootstrap() {
 
   app.enableShutdownHooks();
 
-  await app.listen(parseInt(process.env.PORT as string, 10) || 3000);
+  await app.listen(parseInt(process.env.PORT as string, 10) || 3000, '0.0.0.0');
 }
 bootstrap();

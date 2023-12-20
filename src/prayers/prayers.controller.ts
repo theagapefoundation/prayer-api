@@ -21,7 +21,6 @@ import {
 } from './prayers.interface';
 import { ResponseInterceptor } from 'src/response.interceptor';
 import * as moment from 'moment';
-import { StorageService } from 'src/storage/storage.service';
 import { Timezone } from 'src/timezone.guard';
 import {
   BadRequestError,
@@ -31,13 +30,13 @@ import {
 } from 'src/errors/common.error';
 import { GroupsService } from 'src/groups/groups.service';
 import { NotificationsService } from 'src/notifications/notifications.service';
+import { MustUnbanned } from 'src/users/users.guard';
 
 @Controller('prayers')
 export class PrayersController {
   constructor(
     private appService: PrayersService,
     private groupService: GroupsService,
-    private storageService: StorageService,
     private notificationService: NotificationsService,
   ) {}
 
@@ -183,9 +182,68 @@ export class PrayersController {
     const { data, cursor: newCursor } =
       await this.appService.fetchGroupCorporatePrayers({
         groupId,
+        requestUser: user?.sub,
         cursor,
         timezone: offsetInMinutes,
       });
+    return {
+      createdAt: new Date().toISOString(),
+      data,
+      cursor: newCursor,
+    };
+  }
+
+  @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
+  @Delete(':prayerId')
+  @UseInterceptors(ResponseInterceptor)
+  async deletePrayer(
+    @Param('prayerId') prayerId: string,
+    @User() user: UserEntity,
+  ) {
+    const data = await this.appService.fetchPrayer({
+      prayerId,
+      userId: user.sub,
+    });
+    if (data == null) {
+      throw new TargetNotFoundError('Unable to find a prayer');
+    }
+    if (data.user_id !== user.sub) {
+      throw new OperationNotAllowedError('Only owner can delete the post');
+    }
+    await this.appService.deletePrayer(prayerId);
+    return 'success';
+  }
+
+  @UseGuards(AuthGuard)
+  @Get('followers')
+  async fetchFollowersPrayers(
+    @User() user: UserEntity,
+    @Query('cursor') cursor?: string,
+  ) {
+    const { data, cursor: newCursor } = await this.appService.fetchHomeFeed({
+      userId: user?.sub,
+      cursor,
+      mode: 'followers',
+    });
+    return {
+      createdAt: new Date().toISOString(),
+      data,
+      cursor: newCursor,
+    };
+  }
+
+  @UseGuards(AuthGuard)
+  @Get('neighbor')
+  async fetchNeighborPrayers(
+    @User() user: UserEntity,
+    @Query('cursor') cursor?: string,
+  ) {
+    const { data, cursor: newCursor } = await this.appService.fetchHomeFeed({
+      userId: user?.sub,
+      cursor,
+      mode: 'neighbor',
+    });
     return {
       createdAt: new Date().toISOString(),
       data,
@@ -211,27 +269,6 @@ export class PrayersController {
     return this.appService.fetchPrayer({ prayerId, userId: user?.sub });
   }
 
-  @UseGuards(AuthGuard)
-  @Delete(':prayerId')
-  @UseInterceptors(ResponseInterceptor)
-  async deletePrayer(
-    @Param('prayerId') prayerId: string,
-    @User() user: UserEntity,
-  ) {
-    const data = await this.appService.fetchPrayer({
-      prayerId,
-      userId: user.sub,
-    });
-    if (data == null) {
-      throw new TargetNotFoundError('Unable to find a prayer');
-    }
-    if (data.user_id !== user.sub) {
-      throw new OperationNotAllowedError('Only owner can delete the post');
-    }
-    await this.appService.deletePrayer(prayerId);
-    return 'success';
-  }
-
   @Get()
   async fetchRecommendedPrayers(
     @User() user?: UserEntity,
@@ -249,6 +286,7 @@ export class PrayersController {
   }
 
   @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
   @UseInterceptors(ResponseInterceptor)
   @Post()
   async createPrayer(@User() user: UserEntity, @Body() form: CreatePrayerDto) {
@@ -285,6 +323,7 @@ export class PrayersController {
   }
 
   @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
   @UseInterceptors(ResponseInterceptor)
   @Post('corporate')
   async createOrUpdateCorporatePrayer(
@@ -381,7 +420,7 @@ export class PrayersController {
       await this.appService.fetchPrayersPrayedByUser({
         userId,
         cursor,
-        requestingUserId: user?.sub,
+        requestUser: user?.sub,
       });
     return {
       createdAt: new Date().toISOString(),
@@ -394,10 +433,12 @@ export class PrayersController {
   async fetchPrayerPrays(
     @Param('prayerId') prayerId: string,
     @Query('cursor') cursor?: number,
+    @User() user?: UserEntity,
   ) {
     const data = await this.appService.fetchPrayerPrays({
       prayerId,
       cursor,
+      requestUser: user?.sub,
     });
     const newCursor = data.length < 11 ? null : data.pop();
     return {
@@ -408,6 +449,7 @@ export class PrayersController {
   }
 
   @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
   @UseInterceptors(ResponseInterceptor)
   @Post('pray')
   async createPrayerPray(
@@ -439,6 +481,7 @@ export class PrayersController {
   }
 
   @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
   @UseInterceptors(ResponseInterceptor)
   @Delete('pray/:prayId')
   async deletePrayerPray(

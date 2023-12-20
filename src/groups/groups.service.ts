@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { sql } from 'kysely';
 import { jsonObjectFrom } from 'kysely/helpers/postgres';
 import {
@@ -15,7 +14,6 @@ export class GroupsService {
   constructor(
     private dbService: KyselyService,
     private storageService: StorageService,
-    private configService: ConfigService,
   ) {}
 
   async fetchGroup(groupId: string, userId?: string) {
@@ -32,7 +30,7 @@ export class GroupsService {
       .innerJoin('group_members as members', 'members.group_id', 'groups.id')
       .leftJoin('prayers', 'prayers.group_id', 'groups.id')
       .leftJoin('group_invitations', 'group_invitations.group_id', 'groups.id')
-      .where('members.accepted_at', 'is not', null)
+      .leftJoin('group_bans', 'group_bans.group_id', 'groups.id')
       .selectAll(['groups'])
       .select(({ fn }) => [
         fn
@@ -48,6 +46,7 @@ export class GroupsService {
       .select([
         'group_invitations.created_at as invited_at',
         'banner.path as banner',
+        'group_bans.created_at as banned_at',
       ])
       .groupBy([
         'groups.id',
@@ -55,6 +54,7 @@ export class GroupsService {
         'invited_at',
         'banner.path',
         'admin_content.path',
+        'group_bans.id',
       ])
       .select((eb) =>
         jsonObjectFrom(
@@ -196,6 +196,11 @@ export class GroupsService {
       )
       .innerJoin('contents as banner', 'banner.id', 'groups.banner')
       .innerJoin('group_members', 'group_members.group_id', 'groups.id')
+      .innerJoin(
+        'group_members as group_members_count',
+        'group_members_count.group_id',
+        'groups.id',
+      )
       .groupBy(['groups.id', 'admin.uid', 'admin_content.path', 'banner.path'])
       .where('groups.membership_type', '!=', 'private')
       .$if(!!requestingUserId, (qb) =>
@@ -249,7 +254,7 @@ export class GroupsService {
       .select(({ fn }) =>
         fn
           .coalesce(
-            fn.count<string>(sql`DISTINCT(group_members.user_id)`),
+            fn.count<string>(sql`DISTINCT(group_members_count.user_id)`),
             sql<string>`0`,
           )
           .as('members_count'),
@@ -325,12 +330,21 @@ export class GroupsService {
     requestUser: string;
   }) {
     this.dbService.transaction().execute(async (trx) => {
-      const { admin_id, banner } = await trx
+      const { admin_id, banner, banned_at } = await trx
         .selectFrom('groups')
         .innerJoin('contents', 'contents.id', 'groups.banner')
+        .leftJoin('group_bans', 'group_bans.group_id', 'groups.id')
         .where('groups.id', '=', body.groupId)
-        .select(['groups.admin_id', 'contents.path as banner'])
+        .select([
+          'groups.admin_id',
+          'contents.path as banner',
+          'group_bans.created_at as banned_at',
+        ])
+        .groupBy(['group_bans.created_at'])
         .executeTakeFirstOrThrow();
+      if (banned_at != null) {
+        throw new OperationNotAllowedError('This group has been banned');
+      }
       if (admin_id !== body.requestUser) {
         throw new OperationNotAllowedError('Only admin can make an update');
       }
@@ -354,13 +368,18 @@ export class GroupsService {
 
   async joinGroup(body: { groupId: string; userId: string }) {
     const data = await this.dbService.transaction().execute(async (trx) => {
-      const groupExists = await trx
+      const { id, banned_at } = await trx
         .selectFrom('groups')
+        .leftJoin('group_bans', 'group_bans.group_id', 'groups.id')
+        .groupBy(['group_bans.id'])
         .where('groups.id', '=', body.groupId)
-        .select('groups.id')
+        .select(['groups.id', 'group_bans.created_at as banned_at'])
         .executeTakeFirstOrThrow();
-      if (!groupExists) {
+      if (!id) {
         throw new TargetNotFoundError('Unable to find the group');
+      }
+      if (banned_at != null) {
+        throw new OperationNotAllowedError('Group has been banned');
       }
       const userExists = await trx
         .selectFrom('users')
@@ -611,15 +630,23 @@ export class GroupsService {
     requestUser: string;
   }) {
     return await this.dbService.transaction().execute(async (trx) => {
-      const { moderator } = await trx
+      const { moderator, banned_at } = await trx
         .selectFrom('group_members')
+        .leftJoin('group_bans', 'group_bans.group_id', 'group_members.group_id')
         .where('group_members.user_id', '=', requestUser)
-        .select(['group_members.moderator'])
+        .select([
+          'group_members.moderator',
+          'group_bans.created_at as banned_at',
+        ])
+        .groupBy(['group_bans.id'])
         .executeTakeFirstOrThrow();
       if (!moderator) {
         throw new OperationNotAllowedError(
           'Only moderators are able to accept the requests',
         );
+      }
+      if (banned_at != null) {
+        throw new OperationNotAllowedError('Group has been banned');
       }
       return trx
         .updateTable('group_members')
@@ -642,11 +669,16 @@ export class GroupsService {
     requestUser: string;
   }) {
     return await this.dbService.transaction().execute(async (trx) => {
-      const { admin_id } = await trx
+      const { admin_id, banned_at } = await trx
         .selectFrom('groups')
+        .leftJoin('group_bans', 'group_bans.group_id', 'groups.id')
         .where('groups.id', '=', groupId)
-        .select(['groups.admin_id'])
+        .select(['groups.admin_id', 'group_bans.created_at as banned_at'])
+        .groupBy(['group_bans.id'])
         .executeTakeFirstOrThrow();
+      if (banned_at != null) {
+        throw new OperationNotAllowedError('Group has been banned');
+      }
       if (requestUser !== admin_id) {
         throw new OperationNotAllowedError(
           'Only admin can promote user to moderator',
@@ -678,11 +710,19 @@ export class GroupsService {
     requestUser: string;
   }) {
     return this.dbService.transaction().execute(async (trx) => {
-      const { moderator } = await trx
+      const { moderator, banned_at } = await trx
         .selectFrom('group_members')
+        .leftJoin('group_bans', 'group_bans.group_id', 'group_members.group_id')
+        .groupBy(['group_bans.id'])
         .where('group_members.user_id', '=', requestUser)
-        .select(['group_members.moderator'])
+        .select([
+          'group_members.moderator',
+          'group_bans.created_at as banned_at',
+        ])
         .executeTakeFirstOrThrow();
+      if (banned_at != null) {
+        throw new OperationNotAllowedError('Group has been banned');
+      }
       if (!moderator) {
         throw new OperationNotAllowedError(
           'Only moderator can send invitation',

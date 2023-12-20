@@ -15,6 +15,7 @@ import { ResponseInterceptor } from 'src/response.interceptor';
 import { GroupsService } from './groups.service';
 import { CreateGroupDto, UpdateGroupDto } from './groups.interface';
 import { AuthGuard } from 'src/auth/auth.guard';
+import { MustUnbanned } from 'src/users/users.guard';
 
 @Controller('groups')
 export class GroupsController {
@@ -76,6 +77,7 @@ export class GroupsController {
   }
 
   @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
   @UseInterceptors(ResponseInterceptor)
   @Post()
   async createGroup(@User() user: UserEntity, @Body() body: CreateGroupDto) {
@@ -90,6 +92,7 @@ export class GroupsController {
   }
 
   @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
   @UseInterceptors(ResponseInterceptor)
   @Put(':groupId')
   async editGroup(

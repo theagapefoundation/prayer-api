@@ -9,13 +9,14 @@ import {
 import { UploadsService } from './uploads.service';
 import { User, UserEntity } from 'src/auth/auth.decorator';
 import { AuthGuard } from 'src/auth/auth.guard';
+import { MustUnbanned } from 'src/users/users.guard';
 
 @UseGuards(AuthGuard)
+@UseGuards(MustUnbanned)
 @Controller('uploads')
 export class UploadsController {
   constructor(private appService: UploadsService) {}
 
-  @UseGuards(AuthGuard)
   @Get('multiple')
   async getUploadUrls(
     @User() user: UserEntity,
@@ -41,7 +42,6 @@ export class UploadsController {
     return { data, createdAt: new Date().toISOString() };
   }
 
-  @UseGuards(AuthGuard)
   @Get()
   async getUploadUrl(
     @User() user: UserEntity,

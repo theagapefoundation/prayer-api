@@ -54,6 +54,23 @@ model user_follows {
   @@index([follower_id, following_id])
 }
 
+model user_blocks {
+  id         Int      @id @unique @default(autoincrement())
+  user_id    String   @db.VarChar(40)
+  target_id  String   @db.VarChar(40)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([user_id, target_id])
+  @@index([user_id, target_id])
+}
+
+model user_bans {
+  id         Int      @id @unique @default(autoincrement())
+  user_id    String   @unique @db.VarChar(40)
+  reason     String   @db.VarChar(500)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
 model groups {
   id              String          @id @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name            String          @db.VarChar(30)
@@ -63,6 +80,13 @@ model groups {
   membership_type membership_type
   updated_at      DateTime        @default(now()) @db.Timestamptz(6)
   created_at      DateTime        @default(now()) @db.Timestamptz(6)
+}
+
+model group_bans {
+  id         Int      @id @unique @default(autoincrement())
+  group_id   String   @unique @db.Uuid
+  reason     String   @db.VarChar(500)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
 }
 
 model group_members {

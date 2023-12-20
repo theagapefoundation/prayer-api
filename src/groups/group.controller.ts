@@ -24,6 +24,7 @@ import {
   TargetNotFoundError,
 } from 'src/errors/common.error';
 import { NotificationsService } from 'src/notifications/notifications.service';
+import { MustUnbanned } from 'src/users/users.guard';
 
 @Controller('groups/:groupId')
 export class GroupController {
@@ -40,6 +41,7 @@ export class GroupController {
 
   @UseInterceptors(ResponseInterceptor)
   @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
   @Post('join')
   async joinGroup(
     @User() user: UserEntity,
@@ -151,6 +153,7 @@ export class GroupController {
   }
 
   @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
   @Post('requests')
   async handleRequests(
     @Param('groupId') groupId: string,
@@ -167,6 +170,7 @@ export class GroupController {
   }
 
   @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
   @Post('promote')
   async handleModerators(
     @Param('groupId') groupId: string,
@@ -185,6 +189,7 @@ export class GroupController {
 
   @UseInterceptors(ResponseInterceptor)
   @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
   @Post('invite')
   async sendInvitation(
     @Param('groupId') groupId: string,
@@ -202,6 +207,7 @@ export class GroupController {
 
   @UseInterceptors(ResponseInterceptor)
   @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
   @Delete('invite')
   async deleteInvitation(
     @Param('groupId') groupId: string,

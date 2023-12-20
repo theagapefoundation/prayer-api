@@ -1,4 +1,6 @@
+import { HttpService } from '@nestjs/axios';
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { auth } from 'firebase-admin';
 import { UpdateObject, sql } from 'kysely';
 import { DB } from 'prisma/generated/types';
@@ -14,6 +16,8 @@ export class UsersService {
   constructor(
     private dbService: KyselyService,
     private storageService: StorageService,
+    private httpService: HttpService,
+    private configService: ConfigService,
   ) {}
 
   async handleFollowings({
@@ -25,6 +29,22 @@ export class UsersService {
     follower: string;
     value: boolean;
   }) {
+    const block = await this.dbService
+      .selectFrom('user_blocks')
+      .where(({ or, eb }) =>
+        or([
+          eb('user_blocks.target_id', '=', following).and(
+            eb('user_blocks.user_id', '=', follower),
+          ),
+          eb('user_blocks.user_id', '=', following).and(
+            eb('user_blocks.target_id', '=', follower),
+          ),
+        ]),
+      )
+      .executeTakeFirst();
+    if (block != null) {
+      throw new OperationNotAllowedError('Failed to follow the user');
+    }
     if (value) {
       return this.dbService
         .insertInto('user_follows')
@@ -41,13 +61,43 @@ export class UsersService {
       .executeTakeFirst();
   }
 
+  async handleBlocks({
+    userId,
+    targetId,
+    value,
+  }: {
+    userId: string;
+    targetId: string;
+    value: boolean;
+  }) {
+    if (value) {
+      await this.dbService
+        .deleteFrom('user_follows')
+        .where('user_follows.following_id', '=', userId)
+        .where('user_follows.follower_id', '=', targetId)
+        .executeTakeFirst();
+      await this.dbService
+        .insertInto('user_blocks')
+        .values({ user_id: userId, target_id: targetId })
+        .executeTakeFirst();
+      return;
+    }
+    return this.dbService
+      .deleteFrom('user_blocks')
+      .where('user_id', '=', userId)
+      .where('target_id', '=', targetId)
+      .executeTakeFirst();
+  }
+
   async searchUsers({
     query,
     cursor,
+    requestUser,
     excludeGroupId,
   }: {
     query?: string;
     cursor?: string;
+    requestUser?: string;
     excludeGroupId?: string;
   }) {
     const data = await this.dbService
@@ -61,6 +111,15 @@ export class UsersService {
               .on('group_members.group_id', '=', excludeGroupId!),
           )
           .where('group_members.id', 'is', null),
+      )
+      .$if(!!requestUser, (qb) =>
+        qb
+          .leftJoin('user_blocks', (join) =>
+            join
+              .onRef('user_blocks.user_id', '=', 'users.uid')
+              .on('user_blocks.target_id', '=', requestUser!),
+          )
+          .where('user_blocks.id', 'is', null),
       )
       .$if(!!query, (qb) =>
         qb.where(({ or, eb }) =>
@@ -126,11 +185,26 @@ export class UsersService {
               .onRef('user_follows.follower_id', '=', 'users.uid')
               .on('user_follows.following_id', '=', requestUserId!),
           )
-          .select('user_follows.created_at as followed_at')
-          .groupBy('user_follows.id'),
+          .leftJoin('user_blocks as my_block', (join) =>
+            join
+              .onRef('my_block.target_id', '=', 'users.uid')
+              .on('my_block.user_id', '=', requestUserId!),
+          )
+          .leftJoin('user_blocks as target_block', (join) =>
+            join
+              .onRef('target_block.user_id', '=', 'users.uid')
+              .on('target_block.target_id', '=', requestUserId!),
+          )
+          .select([
+            'user_follows.created_at as followed_at',
+            'my_block.created_at as blocked_at',
+            'target_block.created_at as is_blocked',
+          ])
+          .groupBy(['user_follows.id', 'my_block.id', 'target_block.id']),
       )
       .leftJoin('contents as profile', 'profile.id', 'users.profile')
       .leftJoin('contents as banner', 'banner.id', 'users.banner')
+      .leftJoin('user_bans', 'user_bans.user_id', 'users.uid')
       .leftJoin(
         'user_follows as followers',
         'followers.follower_id',
@@ -143,9 +217,18 @@ export class UsersService {
       )
       .leftJoin('prayers', 'prayers.user_id', 'users.uid')
       .leftJoin('prayer_prays', 'prayer_prays.user_id', 'users.uid')
-      .groupBy(['users.uid', 'profile.path', 'banner.path'])
+      .groupBy([
+        'users.uid',
+        'profile.path',
+        'banner.path',
+        'user_bans.created_at',
+      ])
       .selectAll(['users'])
-      .select(['profile.path as profile', 'banner.path as banner'])
+      .select([
+        'profile.path as profile',
+        'banner.path as banner',
+        'user_bans.created_at as banned_at',
+      ])
       .select(({ fn }) => [
         fn
           .coalesce(
@@ -172,6 +255,9 @@ export class UsersService {
       .executeTakeFirst();
     if (data == null) {
       return data;
+    }
+    if (data.is_blocked != null) {
+      return null;
     }
     const { profile, banner } = this.fetchPresignedUrl(data);
     return {
@@ -389,6 +475,10 @@ export class UsersService {
           )
           .executeTakeFirst();
         trx
+          .deleteFrom('user_bans')
+          .where('user_bans.user_id', '=', userId)
+          .executeTakeFirst();
+        trx
           .deleteFrom('user_fcm_tokens')
           .where('user_fcm_tokens.user_id', '=', userId)
           .executeTakeFirst();
@@ -410,6 +500,33 @@ export class UsersService {
           .executeTakeFirst();
       });
     await auth().deleteUser(userId);
+  }
+
+  async sendFeedback(userId: string, value: string) {
+    return this.httpService.axiosRef.post(
+      `https://api.telegram.org/bot${this.configService.getOrThrow(
+        'TELEGRAM_BOT_TOKEN',
+      )}/sendMessage`,
+      {
+        chat_id: -1001584906039,
+        message_thread_id: 7,
+        text: `uid:${userId}\n${value}`,
+        parse_mode: 'MarkdownV2',
+      },
+    );
+  }
+
+  async sendReport(userId: string, reportId: string, value: string) {
+    return this.httpService.axiosRef.post(
+      `https://api.telegram.org/bot${this.configService.getOrThrow(
+        'TELEGRAM_BOT_TOKEN',
+      )}/sendMessage`,
+      {
+        chat_id: -1001584906039,
+        message_thread_id: 36,
+        text: `uid:${userId}\nreportId:\n${reportId}\n\n${value}`,
+      },
+    );
   }
 
   fetchPresignedUrl(data: { profile?: string | null; banner?: string | null }) {

@@ -250,58 +250,15 @@ export class PrayersService {
   async fetchHomeFeed({
     userId,
     cursor,
+    mode = 'home',
   }: {
     userId?: string;
     cursor?: string;
+    mode?: 'home' | 'followers' | 'neighbor';
   }) {
     const orderOnUser = sql<string>`
-    CONCAT (
-      -- IF PRAYER IS FROM FOLLOWERS
-      CASE
-        WHEN uf.id IS NOT NULL
-        THEN 1
-        ELSE 0
-      END +
-
-      -- LENGTH OF PRAYER
-      CASE
-        WHEN LENGTH(prayers.value) < 50 THEN 0
-        WHEN LENGTH(prayers.value) < 150 THEN 0.75
-        ELSE 1
-      END +
-
-      -- USER HAS PRAYED THIS PRAYER OF A USER BEFORE
-      CASE
-        WHEN COUNT(upp.id) != 0 THEN 0.75
-        ELSE 0
-      END +
-
-      -- USER HAS PRAYED PRAYERS OF A USER BEFORE
-      CASE
-        WHEN COUNT(opp.id) != 0 THEN 0.25
-        ELSE 0
-      END +
-
-      -- NUMBER OF PRAYS AND SUM OF LENGTH OF PRAYS OF MINE
-      LEAST(COUNT(upp.id) * 0.05 + SUM(COALESCE(LENGTH(upp.value), 0)) / 1500, 1) +
-
-      -- NUMBER OF PRAYS AND SUM OF LENGTH OF PRAYS OF ALL
-      LEAST(COUNT(pp.id) * 0.03 + SUM(COALESCE(LENGTH(pp.value), 0)) / 200, 1) +
-
-      -- TIME PASSES AFTER PRAY POSTED
-      CASE
-        WHEN EXTRACT(EPOCH FROM NOW() - MAX(pp.created_at)) < (60 * 60 * 24 * 2) THEN 5 -- 2 DAYS
-        ELSE -3
-      END +
-
-      -- TIME PASSES AFTER PRAYER POSTED
-      CASE
-        WHEN EXTRACT(EPOCH FROM NOW() - prayers.created_at) < (60 * 60 * 24 * 3) THEN 3 -- 3 DAYS
-        ELSE 0
-      END,
-      '_',
-      prayers.id
-    )
+    -- TIME PASSES AFTER PRAY POSTED
+    EXTRACT(EPOCH FROM(prayers.created_at - NOW()))
   `;
     const data = await this.dbService
       .selectFrom('prayers')
@@ -318,32 +275,40 @@ export class PrayersService {
       )
       .$if(!!userId, (qb) =>
         qb
-          .leftJoin('user_follows as uf', (join) =>
+          .leftJoin('user_blocks', (join) =>
             join
-              .onRef('uf.follower_id', '=', 'prayers.user_id')
-              .on('uf.following_id', '=', userId!),
+              .onRef('user_blocks.user_id', '=', 'prayers.user_id')
+              .on('user_blocks.target_id', '=', userId!),
           )
-          .leftJoin('prayer_prays as pp', 'pp.prayer_id', 'prayers.id')
-          .leftJoin('prayers as op', (join) =>
-            join
-              .onRef('op.id', '!=', 'prayers.id')
-              .onRef('op.user_id', '=', 'prayers.user_id'),
-          )
-          .leftJoin('prayer_prays as opp', (join) =>
-            join
-              .onRef('opp.prayer_id', '=', 'op.id')
-              .on('opp.user_id', '=', userId!),
-          )
-          .leftJoin('prayer_prays as upp', (join) =>
-            join
-              .onRef('upp.prayer_id', '=', 'prayers.id')
-              .on('upp.user_id', '=', userId!),
-          )
-          .groupBy(['prayers.id', 'uf.id'])
+          .where('user_blocks.id', 'is', null)
+          .groupBy(['prayers.id'])
           .clearOrderBy()
           .select(orderOnUser.as('cursor'))
-          .orderBy('cursor desc')
+          .orderBy(['cursor desc', 'prayers.id desc'])
           .$if(!!cursor, (eb) => eb.having(orderOnUser, '<=', cursor!)),
+      )
+      .$if(!!userId && mode === 'followers', (qb) =>
+        qb
+          .leftJoin('user_follows', (join) =>
+            join
+              .onRef('user_follows.follower_id', '=', 'prayers.user_id')
+              .on('user_follows.following_id', '=', userId!),
+          )
+          .groupBy('user_follows.id')
+          .where('user_follows.id', 'is not', null),
+      )
+      .$if(!!userId && mode === 'neighbor', (qb) =>
+        qb
+          .innerJoin(
+            'prayers as prayed_prayers',
+            'prayed_prayers.user_id',
+            'prayers.user_id',
+          )
+          .innerJoin('prayer_prays', (join) =>
+            join
+              .on('prayer_prays.user_id', '=', userId!)
+              .onRef('prayer_prays.prayer_id', '=', 'prayed_prayers.id'),
+          ),
       )
       .limit(11)
       .execute();
@@ -371,10 +336,12 @@ export class PrayersService {
   }) {
     const data = await this.dbService
       .selectFrom('prayers')
-      .$if(!!groupId, (eb) => eb.where('group_id', '=', groupId!))
-      .$if(!!userId, (eb) => eb.where('user_id', '=', userId!))
-      .$if(!!corporateId, (eb) => eb.where('corporate_id', '=', corporateId!))
-      .$if(!!hideAnonymous, (eb) => eb.where('anon', '=', false))
+      .$if(!!groupId, (eb) => eb.where('prayers.group_id', '=', groupId!))
+      .$if(!!userId, (eb) => eb.where('prayers.user_id', '=', userId!))
+      .$if(!!corporateId, (eb) =>
+        eb.where('prayers.corporate_id', '=', corporateId!),
+      )
+      .$if(!!hideAnonymous, (eb) => eb.where('prayers.anon', '=', false))
       .$if(requestUser == null, (eb) =>
         eb.where((qb) =>
           qb.exists(
@@ -386,24 +353,33 @@ export class PrayersService {
         ),
       )
       .$if(!!requestUser, (qb) =>
-        qb.where(({ eb, or, exists }) =>
-          or([
-            eb('prayers.group_id', 'is', null),
-            exists(
-              eb
-                .selectFrom('groups')
-                .whereRef('prayers.group_id', '=', 'groups.id')
-                .where('groups.membership_type', '=', 'open'),
-            ),
-            exists(
-              eb
-                .selectFrom('group_members')
-                .whereRef('group_members.group_id', '=', 'prayers.group_id')
-                .where('group_members.user_id', '=', requestUser!)
-                .where('group_members.accepted_at', 'is not', null),
-            ),
-          ]),
-        ),
+        qb
+          .leftJoin('user_blocks', (join) =>
+            join
+              .onRef('user_blocks.user_id', '=', 'prayers.user_id')
+              .on('user_blocks.target_id', '=', requestUser!),
+          )
+          .where(({ eb, or, exists, and }) =>
+            and([
+              eb('user_blocks.id', 'is', null),
+              or([
+                eb('prayers.group_id', 'is', null),
+                exists(
+                  eb
+                    .selectFrom('groups')
+                    .whereRef('prayers.group_id', '=', 'groups.id')
+                    .where('groups.membership_type', '=', 'open'),
+                ),
+                exists(
+                  eb
+                    .selectFrom('group_members')
+                    .whereRef('group_members.group_id', '=', 'prayers.group_id')
+                    .where('group_members.user_id', '=', requestUser!)
+                    .where('group_members.accepted_at', 'is not', null),
+                ),
+              ]),
+            ]),
+          ),
       )
       .$if(!!cursor, (eb) =>
         eb.where(
@@ -428,11 +404,11 @@ export class PrayersService {
   async fetchPrayersPrayedByUser({
     userId,
     cursor,
-    requestingUserId,
+    requestUser,
   }: {
     userId: string;
     cursor?: string;
-    requestingUserId?: string;
+    requestUser?: string;
   }) {
     const data = await this.dbService
       .selectFrom('prayers')
@@ -450,7 +426,7 @@ export class PrayersService {
           'cursor',
         ),
       )
-      .$if(!requestingUserId, (qb) =>
+      .$if(!requestUser, (qb) =>
         qb.where((eb) =>
           eb.not(
             eb.exists(
@@ -461,13 +437,22 @@ export class PrayersService {
           ),
         ),
       )
-      .$if(!!requestingUserId, (qb) =>
+      .$if(!!requestUser, (qb) =>
+        qb
+          .leftJoin('user_blocks', (join) =>
+            join
+              .on('user_blocks.target_id', '=', requestUser!)
+              .onRef('user_blocks.user_id', '=', 'prayers.user_id'),
+          )
+          .where('user_blocks.id', 'is', null),
+      )
+      .$if(!!requestUser, (qb) =>
         qb.where((eb) =>
           eb.not(
             eb.exists(
               eb
                 .selectNoFrom('group_members.id')
-                .where('group_members.user_id', '=', requestingUserId!)
+                .where('group_members.user_id', '=', requestUser!)
                 .where('groups.membership_type', '!=', 'open')
                 .where('group_members.accepted_at', 'is', null),
             ),
@@ -489,9 +474,11 @@ export class PrayersService {
 
   async fetchPrayerPrays({
     prayerId,
+    requestUser,
     cursor,
   }: {
     prayerId: string;
+    requestUser?: string;
     cursor?: number;
   }) {
     const data = await this.dbService
@@ -500,6 +487,15 @@ export class PrayersService {
       .innerJoin('users', 'users.uid', 'prayer_prays.user_id')
       .leftJoin('contents as profile', 'profile.id', 'users.profile')
       .$if(!!cursor, (eb) => eb.where('prayer_prays.id', '<=', cursor!))
+      .$if(!!requestUser, (qb) =>
+        qb
+          .leftJoin('user_blocks', (join) =>
+            join
+              .on('user_blocks.target_id', '=', requestUser!)
+              .onRef('user_blocks.user_id', '=', 'prayer_prays.user_id'),
+          )
+          .where('user_blocks.id', 'is', null),
+      )
       .orderBy('prayer_prays.id desc')
       .select((eb) =>
         jsonObjectFrom(
@@ -551,6 +547,12 @@ export class PrayersService {
           'cursor',
         ),
       )
+      .leftJoin('user_blocks', (join) =>
+        join
+          .on('user_blocks.target_id', '=', userId!)
+          .onRef('user_blocks.user_id', '=', 'prayers.user_id'),
+      )
+      .where('user_blocks.id', 'is', null)
       .orderBy('prayers.created_at desc')
       .$if(!!cursor, (eb) =>
         eb.where(
@@ -559,7 +561,7 @@ export class PrayersService {
           cursor!,
         ),
       )
-      .select(['id'])
+      .select(['prayers.id'])
       .limit(11)
       .execute();
     const newCursor = data.length < 11 ? null : data.pop()?.cursor ?? null;
@@ -568,10 +570,12 @@ export class PrayersService {
 
   async fetchGroupCorporatePrayers({
     groupId,
+    requestUser,
     cursor,
     timezone = 0,
   }: {
     groupId: string;
+    requestUser?: string;
     cursor?: string;
     timezone?: number;
   }) {
@@ -596,10 +600,19 @@ export class PrayersService {
     const data = await this.dbService
       .selectFrom('corporate_prayers')
       .where('corporate_prayers.group_id', '=', groupId)
+      .$if(!!requestUser, (qb) =>
+        qb
+          .leftJoin('user_blocks', (join) =>
+            join
+              .on('user_blocks.target_id', '=', requestUser!)
+              .onRef('user_blocks.user_id', '=', 'corporate_prayers.user_id'),
+          )
+          .where('user_blocks.id', 'is', null),
+      )
       .select(sortLogic.as('cursor'))
       .$if(!!cursor, ({ where }) => where(sortLogic, '<=', cursor!))
       .orderBy(['cursor desc'])
-      .select(['id'])
+      .select(['corporate_prayers.id'])
       .limit(6)
       .execute();
     const newCursor = data.length < 6 ? null : data.pop();

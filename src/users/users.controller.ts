@@ -25,6 +25,7 @@ import {
   UsernameDuplicatedError,
 } from 'src/errors/common.error';
 import { NotificationsService } from 'src/notifications/notifications.service';
+import { MustUnbanned } from './users.guard';
 
 @Controller('users')
 export class UsersController {
@@ -38,11 +39,13 @@ export class UsersController {
     @Query('query') query?: string,
     @Query('cursor') oldCursor?: string,
     @Query('excludeGroupId') excludeGroupId?: string,
+    @User() user?: UserEntity,
   ) {
     const { data, cursor } = await this.appService.searchUsers({
       query,
       cursor: oldCursor,
       excludeGroupId,
+      requestUser: user?.sub,
     });
     return {
       data,
@@ -99,6 +102,7 @@ export class UsersController {
 
   @UseInterceptors(ResponseInterceptor)
   @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
   @Put()
   async updateUser(@User() user: UserEntity, @Body() form: UpdateUserDto) {
     try {
@@ -157,6 +161,29 @@ export class UsersController {
     }
   }
 
+  @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
+  @Post(':userId/blocks')
+  async blockUsers(
+    @User() user: UserEntity,
+    @Param('userId') userId: string,
+    @Body() { value }: FollowUserDto,
+  ) {
+    try {
+      if (user.sub === userId) {
+        throw new FollowMyselfError();
+      }
+      await this.appService.handleBlocks({
+        userId: user.sub,
+        targetId: userId,
+        value,
+      });
+      return { success: true };
+    } catch (e) {
+      return { success: false };
+    }
+  }
+
   @Get(':userId/followings')
   async fetchFollowings(
     @Param('userId') userId: string,
@@ -193,5 +220,23 @@ export class UsersController {
       data,
       cursor: newCursor,
     };
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('feedback')
+  async createFeedback(
+    @User() user: UserEntity,
+    @Body() { value }: { value: string },
+  ) {
+    await this.appService.sendFeedback(user.sub, value ?? '');
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('report')
+  async createReport(
+    @User() user: UserEntity,
+    @Body() { reportId, value }: { reportId: string; value: string },
+  ) {
+    await this.appService.sendReport(user.sub, reportId, value ?? '');
   }
 }

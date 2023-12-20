@@ -6,6 +6,7 @@ import { UsersController } from './users.controller';
 import { ConfigModule } from '@nestjs/config';
 import { StorageModule } from 'src/storage/storage.module';
 import { NotificationsModule } from 'src/notifications/notifications.module';
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { NotificationsModule } from 'src/notifications/notifications.module';
     StorageModule,
     ConfigModule,
     NotificationsModule,
+    HttpModule,
   ],
   controllers: [UsersController],
   providers: [UsersService],
