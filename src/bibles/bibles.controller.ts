@@ -1,14 +1,10 @@
 import { Controller, Get, Param, Query, UseInterceptors } from '@nestjs/common';
-import { NotificationsService } from 'src/notifications/notifications.service';
 import { BiblesService } from './bibles.service';
 import { ResponseInterceptor } from 'src/response.interceptor';
 
 @Controller('bibles')
 export class BiblesController {
-  constructor(
-    private readonly appService: BiblesService,
-    private readonly notificationService: NotificationsService,
-  ) {}
+  constructor(private readonly appService: BiblesService) {}
 
   @Get('translations')
   async fetchAllTransitions(

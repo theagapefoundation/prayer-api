@@ -1,13 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { KyselyService } from 'src/kysely/kysely.service';
-import { StorageService } from 'src/storage/storage.service';
 
 @Injectable()
 export class BiblesService {
-  constructor(
-    private dbService: KyselyService,
-    private storageService: StorageService,
-  ) {}
+  constructor(private dbService: KyselyService) {}
 
   async fetchTranslations(params?: { lang?: string; cursor?: number }) {
     const data = await this.dbService
