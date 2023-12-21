@@ -368,16 +368,13 @@ export class GroupsService {
 
   async joinGroup(body: { groupId: string; userId: string }) {
     const data = await this.dbService.transaction().execute(async (trx) => {
-      const { id, banned_at } = await trx
+      const { banned_at } = await trx
         .selectFrom('groups')
         .leftJoin('group_bans', 'group_bans.group_id', 'groups.id')
-        .groupBy(['group_bans.id'])
+        .groupBy(['groups.id', 'group_bans.id'])
         .where('groups.id', '=', body.groupId)
         .select(['groups.id', 'group_bans.created_at as banned_at'])
         .executeTakeFirstOrThrow();
-      if (!id) {
-        throw new TargetNotFoundError('Unable to find the group');
-      }
       if (banned_at != null) {
         throw new OperationNotAllowedError('Group has been banned');
       }

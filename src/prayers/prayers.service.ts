@@ -533,7 +533,7 @@ export class PrayersService {
       .selectFrom('prayers')
       .where((eb) =>
         eb(
-          'group_id',
+          'prayers.group_id',
           'in',
           eb
             .selectFrom('group_members')

@@ -140,6 +140,7 @@ export class UsersService {
           'cursor',
         ),
       )
+      .groupBy(['profile.path'])
       .orderBy(['users.created_at desc', 'users.uid desc'])
       .$if(!!cursor, (qb) =>
         qb.where(
