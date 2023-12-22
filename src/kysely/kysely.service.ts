@@ -10,7 +10,10 @@ export class KyselyService extends Kysely<DB> {
     super({
       dialect: new PostgresDialect({
         pool: new Pool({
-          connectionString: configService.getOrThrow('DATABASE_URL'),
+          connectionString:
+            process.env.JEST_WORKER_ID == null
+              ? configService.getOrThrow('DATABASE_URL')
+              : '',
         }),
       }),
     });
