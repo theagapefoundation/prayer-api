@@ -20,11 +20,15 @@ export class FirebaseService {
     private configService: ConfigService,
     private dbService: KyselyService,
   ) {
-    initializeApp({
-      credential: credential.cert(
-        JSON.parse(configService.getOrThrow('FIREBASE_ADMIN_PRIVATE_KEY')),
-      ),
-    });
+    if (process.env.NODE_ENV === 'development') {
+      initializeApp({
+        credential: credential.cert(
+          JSON.parse(configService.getOrThrow('FIREBASE_ADMIN_PRIVATE_KEY')),
+        ),
+      });
+    } else {
+      initializeApp();
+    }
   }
 
   async send(params: {

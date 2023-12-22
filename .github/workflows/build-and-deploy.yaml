@@ -1,0 +1,49 @@
+name: Build and deploy to GCP 
+
+on: workflow_dispatch
+
+jobs:
+  build-and-deploy:
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: 'projects/105380254004/locations/global/workloadIdentityPools/github/providers/prayer-api-repo'
+          service_account: 'prayer-api@prayer-api.iam.gserviceaccount.com'
+    
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v2'
+      
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authorize Docker to Google Container Registry
+        run: gcloud auth configure-docker asia-docker.pkg.dev
+
+      - name: Build Container
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          tags: asia-docker.pkg.dev/prayer-404014/asia.gcr.io/prayer-api$GITHUB_SHA
+          build-args: |
+            SENTRY_AUTH_TOKEN=${{ secrets.SENTRY_AUTH_TOKEN }}
+
+      - name: 'Deploy to GCP Cloud Run'
+        uses: 'google-github-actions/deploy-cloudrun@v2'
+        with:
+          service: 'prayer-api'
+          env_vars: |
+            NODE_ENV=production
+            BUCKET_NAME=${{ secrets.BUCKET_NAME }}
+            SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+          secrets: |
+            DATABASE_URL=prayer-api-db-url:latest
+            TELEGRAM_BOT_TOKEN=prayer-api-telegram-bot-token:latest
