@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: yarn install
 
-      - name: Validate all commits from PR
+      - name: Run linters
         run: yarn lint
   
   run-commitlint-on-pr:
