@@ -41,6 +41,7 @@ jobs:
         with:
           service: prayer-api
           image: asia-docker.pkg.dev/prayer-404014/asia.gcr.io/prayer-api:${{ github.sha }}
+          region: asia-northeast1
           env_vars: |
             NODE_ENV=production
             BUCKET_NAME=${{ secrets.BUCKET_NAME }}
