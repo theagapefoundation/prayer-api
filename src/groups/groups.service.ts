@@ -635,7 +635,7 @@ export class GroupsService {
           'group_members.moderator',
           'group_bans.created_at as banned_at',
         ])
-        .groupBy(['group_bans.id'])
+        .groupBy(['group_bans.id', 'group_members.id'])
         .executeTakeFirstOrThrow();
       if (!moderator) {
         throw new OperationNotAllowedError(
