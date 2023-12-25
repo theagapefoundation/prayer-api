@@ -27,7 +27,11 @@ export class GroupsService {
         'admin_content.id',
         'admin.profile',
       )
-      .innerJoin('group_members as members', 'members.group_id', 'groups.id')
+      .innerJoin('group_members as members', (join) =>
+        join
+          .onRef('members.group_id', '=', 'groups.id')
+          .on('members.accepted_at', 'is not', null),
+      )
       .leftJoin('prayers', 'prayers.group_id', 'groups.id')
       .leftJoin('group_invitations', 'group_invitations.group_id', 'groups.id')
       .leftJoin('group_bans', 'group_bans.group_id', 'groups.id')
@@ -196,10 +200,10 @@ export class GroupsService {
       )
       .innerJoin('contents as banner', 'banner.id', 'groups.banner')
       .innerJoin('group_members', 'group_members.group_id', 'groups.id')
-      .innerJoin(
-        'group_members as group_members_count',
-        'group_members_count.group_id',
-        'groups.id',
+      .innerJoin('group_members as group_members_count', (join) =>
+        join
+          .onRef('group_members_count.group_id', '=', 'groups.id')
+          .on('group_members_count.accepted_at', 'is not', null),
       )
       .groupBy(['groups.id', 'admin.uid', 'admin_content.path', 'banner.path'])
       .where('groups.membership_type', '!=', 'private')
