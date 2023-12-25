@@ -6,6 +6,7 @@ COPY . .
 
 RUN yarn install
 
+ARG VERSION
 ARG SENTRY_AUTH_TOKEN
 
 RUN yarn build

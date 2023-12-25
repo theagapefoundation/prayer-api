@@ -35,6 +35,7 @@ jobs:
           tags: asia-docker.pkg.dev/prayer-404014/asia.gcr.io/prayer-api:${{ github.sha }}
           build-args: |
             SENTRY_AUTH_TOKEN=${{ secrets.SENTRY_AUTH_TOKEN }}
+            VERSION=${{ github.sha }}
 
       - name: Deploy to GCP Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
@@ -46,7 +47,17 @@ jobs:
             NODE_ENV=production
             BUCKET_NAME=${{ secrets.BUCKET_NAME }}
             SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+            VERSION=${{ github.sha }}
           secrets: |
             DATABASE_URL=prayer-api-db-url:latest
             TELEGRAM_BOT_TOKEN=prayer-api-telegram-bot-token:latest
           flags: '--add-cloudsql-instances=${{ secrets.CLOUDSQL_INSTANCE_ID }}'
+    
+      - name: Create Sentry release
+        uses: getsentry/action-release@v1
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: crosswand
+          SENTRY_PROJECT: prayer-api
+        with:
+          environment: production

@@ -17,7 +17,7 @@ async function bootstrap() {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     tracesSampleRate: 1.0,
-    release: 'prayer-api@' + process.env.npm_package_version,
+    release: 'prayer-api@' + process.env.VERSION,
   });
 
   app.enableVersioning({
