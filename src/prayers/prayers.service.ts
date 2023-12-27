@@ -145,9 +145,16 @@ export class PrayersService {
               .onRef('user_prayed.prayer_id', '=', 'prayers.id')
               .on('prayer_prays.user_id', '=', userId!),
           )
-          .select(({ fn }) =>
+          .leftJoin('group_members', (join) =>
+            join
+              .onRef('group_members.group_id', '=', 'groups.id')
+              .on('group_members.user_id', '=', userId!),
+          )
+          .groupBy(['group_members.id'])
+          .select(({ fn }) => [
+            'group_members.moderator as moderator',
             fn.max('user_prayed.created_at').as('has_prayed'),
-          ),
+          ]),
       )
       .selectAll(['prayers'])
       .select(({ fn }) => [
@@ -232,6 +239,7 @@ export class PrayersService {
     }
     return {
       ...data,
+      group: !!data.group ? { ...data.group, moderator: data.moderator } : null,
       contents: data.contents
         ?.filter((content) => !!content)
         .map((content) => ({
