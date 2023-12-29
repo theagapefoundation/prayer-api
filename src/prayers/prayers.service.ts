@@ -435,14 +435,11 @@ export class PrayersService {
         ),
       )
       .$if(!requestUser, (qb) =>
-        qb.where((eb) =>
-          eb.not(
-            eb.exists(
-              eb
-                .selectNoFrom('groups.id')
-                .where('groups.membership_type', '!=', 'open'),
-            ),
-          ),
+        qb.where(({ or, eb }) =>
+          or([
+            eb('prayers.group_id', 'is', null),
+            eb('groups.membership_type', '!=', 'open'),
+          ]),
         ),
       )
       .$if(!!requestUser, (qb) =>
@@ -455,16 +452,17 @@ export class PrayersService {
           .where('user_blocks.id', 'is', null),
       )
       .$if(!!requestUser, (qb) =>
-        qb.where((eb) =>
-          eb.not(
-            eb.exists(
+        qb.where(({ or, eb, exists }) =>
+          or([
+            eb('prayers.group_id', 'is', null),
+            eb('groups.membership_type', '=', 'open'),
+            exists(
               eb
                 .selectNoFrom('group_members.id')
-                .where('group_members.user_id', '=', requestUser!)
-                .where('groups.membership_type', '!=', 'open')
-                .where('group_members.accepted_at', 'is', null),
+                .where('group_members.accepted_at', 'is not', null)
+                .where('group_members.user_id', '=', requestUser!),
             ),
-          ),
+          ]),
         ),
       )
       .$if(!!cursor, (qb) =>
