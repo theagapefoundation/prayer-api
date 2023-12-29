@@ -714,7 +714,7 @@ export class GroupsService {
       const { moderator, banned_at } = await trx
         .selectFrom('group_members')
         .leftJoin('group_bans', 'group_bans.group_id', 'group_members.group_id')
-        .groupBy(['group_bans.id'])
+        .groupBy(['group_bans.id', 'group_members.id'])
         .where('group_members.user_id', '=', requestUser)
         .select([
           'group_members.moderator',
