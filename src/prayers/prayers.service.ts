@@ -316,7 +316,8 @@ export class PrayersService {
             join
               .on('prayer_prays.user_id', '=', userId!)
               .onRef('prayer_prays.prayer_id', '=', 'prayed_prayers.id'),
-          ),
+          )
+          .where('prayers.user_id', '!=', userId!),
       )
       .limit(11)
       .execute();
