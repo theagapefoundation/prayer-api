@@ -480,6 +480,12 @@ export class PrayersController {
     }
   }
 
+  @UseInterceptors(ResponseInterceptor)
+  @Get('pray/:prayId')
+  async fetchPrayerPray(@Param('prayId') prayId: number) {
+    return this.appService.fetchPrayerPray(prayId);
+  }
+
   @UseGuards(AuthGuard)
   @UseGuards(MustUnbanned)
   @UseInterceptors(ResponseInterceptor)
