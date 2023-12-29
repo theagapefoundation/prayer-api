@@ -761,7 +761,7 @@ export class PrayersService {
     userId: string;
     value?: string;
   }) {
-    await this.dbService
+    return this.dbService
       .insertInto('prayer_prays')
       .values({
         prayer_id: prayerId,
@@ -769,7 +769,8 @@ export class PrayersService {
         created_at: new Date(),
         value,
       })
-      .executeTakeFirst();
+      .returning('prayer_prays.id')
+      .executeTakeFirstOrThrow();
   }
 
   async createCorporatePrayer({
