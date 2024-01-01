@@ -402,12 +402,14 @@ export class PrayersController {
               value: form.reminderText!,
             },
     });
-    this.notificationService.notifyCorporatePrayerCreated({
-      groupId: form.groupId,
-      uploaderId: user.sub,
-      prayerId: id,
-    });
-    return 'success';
+    if (form.corporateId != id) {
+      this.notificationService.notifyCorporatePrayerCreated({
+        groupId: form.groupId,
+        uploaderId: user.sub,
+        prayerId: id,
+      });
+    }
+    return id;
   }
 
   @Get('pray/by/user/:userId')
@@ -468,12 +470,16 @@ export class PrayersController {
           throw new Error('Need at least 5 minutes to repray');
         }
       }
-      await this.appService.createPrayerPray({
+      const { id } = await this.appService.createPrayerPray({
         prayerId,
         userId: user.sub,
         value,
       });
-      this.notificationService.prayForUser(prayerId, user.sub, !!value);
+      this.notificationService.prayForUser({
+        prayerId,
+        sender: user.sub,
+        prayId: id,
+      });
       return 'success';
     } catch (e) {
       return 'false';

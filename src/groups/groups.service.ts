@@ -604,6 +604,10 @@ export class GroupsService {
             .deleteFrom('group_members')
             .where('group_members.group_id', '=', groupId)
             .execute(),
+          trx
+            .deleteFrom('notification_group_settings')
+            .where('notification_group_settings.group_id', '=', groupId)
+            .execute(),
         ]);
         this.storageService.publicBucket
           .file(banner)

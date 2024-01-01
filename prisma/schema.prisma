@@ -169,14 +169,49 @@ model group_invitations {
 }
 
 model notifications {
-  id             Int      @id @unique @default(autoincrement())
-  user_id        String   @db.VarChar(40)
-  message        String   @db.VarChar(100)
-  group_id       String?  @db.Uuid
-  prayer_id      String?  @db.Uuid
-  corporate_id   String?  @db.Uuid
-  target_user_id String?  @db.VarChar(40)
-  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  id             Int               @id @unique @default(autoincrement())
+  user_id        String            @db.VarChar(40)
+  message        String?           @db.VarChar(100)
+  group_id       String?           @db.Uuid
+  pray_id        Int?              @db.Integer
+  prayer_id      String?           @db.Uuid
+  corporate_id   String?           @db.Uuid
+  target_user_id String?           @db.VarChar(40)
+  type           notification_type
+  created_at     DateTime          @default(now()) @db.Timestamptz(6)
+}
+
+model notification_group_settings {
+  id                Int     @id @unique @default(autoincrement())
+  user_id           String  @db.VarChar(40)
+  group_id          String  @db.Uuid
+  on_moderator_post Boolean @default(false)
+  on_post           Boolean @default(false)
+
+  @@unique([user_id, group_id])
+  @@index([user_id, group_id])
+}
+
+model notification_corporate_settings {
+  id           Int     @id @unique @default(autoincrement())
+  user_id      String  @db.VarChar(40)
+  corporate_id String  @db.Uuid
+  on_reminder  Boolean @default(false)
+  on_post      Boolean @default(false)
+
+  @@unique([user_id, corporate_id])
+  @@index([user_id, corporate_id])
+}
+
+enum notification_type {
+  followed
+  group_join_requested
+  group_joined
+  group_accepted
+  group_promoted
+  prayed
+  group_corporate_posted
+  prayer_posted
 }
 
 enum membership_type {

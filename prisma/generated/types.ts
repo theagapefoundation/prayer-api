@@ -4,6 +4,17 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   : ColumnType<T, T | undefined, T>;
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
+export const notification_type = {
+    followed: "followed",
+    group_join_requested: "group_join_requested",
+    group_joined: "group_joined",
+    group_accepted: "group_accepted",
+    group_promoted: "group_promoted",
+    prayed: "prayed",
+    group_corporate_posted: "group_corporate_posted",
+    prayer_posted: "prayer_posted"
+} as const;
+export type notification_type = (typeof notification_type)[keyof typeof notification_type];
 export const membership_type = {
     open: "open",
     restricted: "restricted",
@@ -144,14 +155,30 @@ export type groups = {
     updated_at: Generated<Timestamp>;
     created_at: Generated<Timestamp>;
 };
+export type notification_corporate_settings = {
+    id: Generated<number>;
+    user_id: string;
+    corporate_id: string;
+    on_reminder: Generated<boolean>;
+    on_post: Generated<boolean>;
+};
+export type notification_group_settings = {
+    id: Generated<number>;
+    user_id: string;
+    group_id: string;
+    on_moderator_post: Generated<boolean>;
+    on_post: Generated<boolean>;
+};
 export type notifications = {
     id: Generated<number>;
     user_id: string;
-    message: string;
+    message: string | null;
     group_id: string | null;
+    pray_id: number | null;
     prayer_id: string | null;
     corporate_id: string | null;
     target_user_id: string | null;
+    type: notification_type;
     created_at: Generated<Timestamp>;
 };
 export type prayer_bible_verses = {
@@ -232,6 +259,8 @@ export type DB = {
     group_invitations: group_invitations;
     group_members: group_members;
     groups: groups;
+    notification_corporate_settings: notification_corporate_settings;
+    notification_group_settings: notification_group_settings;
     notifications: notifications;
     prayer_bible_verses: prayer_bible_verses;
     prayer_contents: prayer_contents;

@@ -17,12 +17,6 @@ export class NotificationsService {
       .selectFrom('notifications')
       .leftJoin('users as target', 'target.uid', 'notifications.target_user_id')
       .leftJoin('contents', 'contents.id', 'target.profile')
-      .leftJoin('groups', 'groups.id', 'notifications.group_id')
-      .leftJoin(
-        'contents as group_content',
-        'group_content.id',
-        'groups.banner',
-      )
       .selectAll(['notifications'])
       .select((eb) =>
         eb
@@ -41,24 +35,6 @@ export class NotificationsService {
           .end()
           .as('target_user'),
       )
-      .select((eb) =>
-        eb
-          .case()
-          .when('groups.id', 'is not', null)
-          .then(
-            jsonObjectFrom(
-              eb.selectNoFrom([
-                'groups.id',
-                'groups.name',
-                'groups.admin_id',
-                'groups.membership_type',
-                'group_content.path as banner',
-              ]),
-            ),
-          )
-          .end()
-          .as('group'),
-      )
       .where('notifications.user_id', '=', userId)
       .limit(11)
       .orderBy('notifications.id desc')
@@ -69,9 +45,6 @@ export class NotificationsService {
         d.target_user.profile = this.storageService.getPublicUrl(
           d.target_user.profile,
         );
-      }
-      if (d.group?.banner) {
-        d.group.banner = this.storageService.getPublicUrl(d.group.banner);
       }
     });
     return data;
@@ -101,28 +74,25 @@ export class NotificationsService {
   }
 
   async notifyUserFollowed(followingFrom: string, followingTo: string) {
-    const data = await this.dbService
+    const { username } = await this.dbService
       .selectFrom('users')
       .where('users.uid', '=', followingFrom)
       .select('username')
-      .executeTakeFirst();
-    if (data == null) {
-      return;
-    }
-    this.dbService
-      .insertInto('notifications')
-      .values({
-        user_id: followingTo,
-        target_user_id: followingFrom,
-        message: `${data.username} started following you.`,
-      })
-      .executeTakeFirst();
-    return this.firebaseService.send({
-      userId: [followingTo],
-      title: 'Prayer',
-      body: `${data.username} started following you.`,
-      data: { userId: followingFrom },
-    });
+      .executeTakeFirstOrThrow();
+    await Promise.all([
+      this.dbService
+        .insertInto('notifications')
+        .values({
+          user_id: followingTo,
+          target_user_id: followingFrom,
+          type: 'followed',
+        })
+        .executeTakeFirst(),
+      this.firebaseService.send({
+        userId: [followingTo],
+        data: { userId: followingFrom, type: 'followed', username },
+      }),
+    ]);
   }
 
   async notifyJoinGroup(groupId: string, userId: string, pending?: boolean) {
@@ -150,19 +120,19 @@ export class NotificationsService {
           mods.map(({ user_id }) => ({
             user_id,
             group_id: groupId,
-            message: `${username} has ${
-              !pending ? 'joined the group' : 'requested to join the group'
-            }`,
+            target_user_id: userId,
+            type: pending ? 'group_join_requested' : 'group_joined',
           })),
         )
         .executeTakeFirst();
       this.firebaseService.send({
         userId: mods.map(({ user_id }) => user_id),
-        title: name,
-        body: `${username} has ${
-          !pending ? 'joined the group' : 'requested to join the group'
-        }`,
-        data: { groupId },
+        data: {
+          groupId,
+          username,
+          groupName: name,
+          type: pending ? 'group_join_requested' : 'group_joined',
+        },
       });
     }
   }
@@ -177,15 +147,13 @@ export class NotificationsService {
       .insertInto('notifications')
       .values({
         user_id: userId,
-        message: `Congratulations! You are now the member of ${name}`,
+        type: 'group_accepted',
         group_id: groupId,
       })
       .executeTakeFirst();
     this.firebaseService.send({
       userId: [userId],
-      title: name,
-      body: `Congratulations! You are now the member of ${name}`,
-      data: { groupId },
+      data: { groupId, groupName: name, type: 'group_accepted' },
     });
   }
 
@@ -199,82 +167,64 @@ export class NotificationsService {
       .insertInto('notifications')
       .values({
         user_id: userId,
-        message: `You've been promoted to moderator of ${name}`,
+        type: 'group_promoted',
         group_id: groupId,
       })
       .executeTakeFirst();
     this.firebaseService.send({
       userId: [userId],
-      title: name,
-      body: `You've been promoted to moderator of ${name}`,
-      data: { groupId },
+      data: { groupId, groupName: name, type: 'group_promoted' },
     });
   }
 
-  async prayForUser(prayerId: string, sender: string, notifyFellows?: boolean) {
-    const [
-      { username: senderUsername },
-      { uid: writerUid, username: writerUsername, fellows },
-    ] = await Promise.all([
-      this.dbService
-        .selectFrom('users')
-        .where('users.uid', '=', sender)
-        .select('users.username')
-        .executeTakeFirstOrThrow(),
-      this.dbService
-        .selectFrom('prayers')
-        .leftJoin('prayer_prays', 'prayer_prays.prayer_id', 'prayers.id')
-        .innerJoin('users', 'users.uid', 'prayers.user_id')
-        .where('prayers.id', '=', prayerId)
-        .select(['users.uid', 'users.username'])
-        .$if(!!notifyFellows, (qb) =>
-          qb.select(({ selectNoFrom }) =>
-            jsonArrayFrom(selectNoFrom('prayer_prays.user_id')).as('fellows'),
-          ),
-        )
-        .executeTakeFirstOrThrow(),
-    ]);
-    if (fellows) {
-      const target = fellows
-        .map(({ user_id }) => user_id)
-        .filter(
-          (value) => value !== writerUid && value !== sender && value != null,
-        ) as string[];
-      if (target.length > 0) {
+  async prayForUser({
+    prayId,
+    prayerId,
+    sender,
+  }: {
+    prayId: number;
+    prayerId: string;
+    sender: string;
+  }) {
+    const [{ username: senderUsername }, { uid: writerUid, fellows }] =
+      await Promise.all([
         this.dbService
-          .insertInto('notifications')
-          .values(
-            target.map((t) => ({
-              user_id: t,
-              target_user_id: sender,
-              message: `${senderUsername} has prayed for you`,
-              prayer_id: prayerId,
-            })),
+          .selectFrom('users')
+          .where('users.uid', '=', sender)
+          .select('users.username')
+          .executeTakeFirstOrThrow(),
+        this.dbService
+          .selectFrom('prayers')
+          .leftJoin('prayer_prays', 'prayer_prays.prayer_id', 'prayers.id')
+          .innerJoin('users', 'users.uid', 'prayers.user_id')
+          .where('prayers.id', '=', prayerId)
+          .select(['users.uid'])
+          .select(({ selectNoFrom }) =>
+            jsonArrayFrom(selectNoFrom('prayer_prays.user_id')).as('fellows'),
           )
-          .executeTakeFirst();
-        this.firebaseService.send({
-          userId: target,
-          title: 'Prayer',
-          body: `${senderUsername} has prayed for ${writerUsername}`,
-          data: { prayerId },
-        });
-      }
-    }
-    if (sender !== writerUid) {
+          .executeTakeFirstOrThrow(),
+      ]);
+    const target = fellows
+      .map(({ user_id }) => user_id)
+      .filter(
+        (value) => value !== writerUid && value !== sender && value != null,
+      ) as string[];
+    if (target.length > 0) {
       this.dbService
         .insertInto('notifications')
-        .values({
-          user_id: writerUid!,
-          target_user_id: sender,
-          message: `${senderUsername} has prayed for you`,
-          prayer_id: prayerId,
-        })
+        .values(
+          target.map((t) => ({
+            user_id: t,
+            target_user_id: sender,
+            type: 'prayed',
+            prayer_id: prayerId,
+            pray_id: prayId,
+          })),
+        )
         .executeTakeFirst();
       this.firebaseService.send({
-        userId: [writerUid!],
-        title: 'Prayer',
-        body: `${senderUsername} has prayed for you`,
-        data: { prayerId },
+        userId: target,
+        data: { prayerId, type: 'prayed', username: senderUsername },
       });
     }
   }
@@ -288,17 +238,24 @@ export class NotificationsService {
     prayerId: string;
     uploaderId: string;
   }) {
-    const { name, members } = await this.dbService
-      .selectFrom('groups')
-      .innerJoin('group_members', 'group_members.group_id', 'groups.id')
-      .where('groups.id', '=', groupId)
-      .where('group_members.accepted_at', 'is not', null)
-      .select('groups.name')
-      .select((eb) =>
-        jsonArrayFrom(eb.selectNoFrom('group_members.user_id')).as('members'),
-      )
-      .executeTakeFirstOrThrow();
-    const userIds = members
+    const [data, { username }] = await Promise.all([
+      this.dbService
+        .selectFrom('group_members')
+        .innerJoin('groups', 'groups.id', 'group_members.group_id')
+        .where('group_members.group_id', '=', groupId)
+        .where('group_members.accepted_at', 'is not', null)
+        .select(['group_members.user_id', 'groups.name'])
+        .execute(),
+      this.dbService
+        .selectFrom('users')
+        .where('users.uid', '=', uploaderId)
+        .select('users.username')
+        .executeTakeFirstOrThrow(),
+    ]);
+    if (data == null) {
+      return;
+    }
+    const userIds = data
       .map(({ user_id }) => user_id)
       .filter((value) => value !== uploaderId && value != null) as string[];
     if (userIds.length > 0) {
@@ -307,17 +264,21 @@ export class NotificationsService {
         .values(
           userIds.map((userId) => ({
             user_id: userId,
-            message: `${name} has a new corporate prayer`,
+            target_user_id: uploaderId,
             group_id: groupId,
+            type: 'group_corporate_posted',
             corporate_id: prayerId,
           })),
         )
         .executeTakeFirst();
       this.firebaseService.send({
         userId: userIds,
-        title: 'Prayer',
-        body: `${name} has a new corporate prayer`,
-        data: { corporateId: prayerId },
+        data: {
+          corporateId: prayerId,
+          type: 'group_corporate_posted',
+          groupName: data[0].name,
+          username,
+        },
       });
     }
   }
@@ -333,15 +294,26 @@ export class NotificationsService {
     prayerId: string;
     userId: string;
   }) {
+    let _corporateName: string | undefined = undefined;
+    let _groupName: string | undefined = undefined;
+    let _username: string;
+    let _members: string[];
     if (corporateId) {
       const [{ user_id, title, users }, { username }] = await Promise.all([
         this.dbService
           .selectFrom('corporate_prayers')
-          .innerJoin('prayers', 'prayers.corporate_id', 'corporate_prayers.id')
+          .leftJoin(
+            'notification_corporate_settings',
+            'notification_corporate_settings.corporate_id',
+            'corporate_prayers.id',
+          )
           .select(['corporate_prayers.user_id', 'corporate_prayers.title'])
           .where('corporate_prayers.id', '=', corporateId)
+          .where('notification_corporate_settings.on_post', 'is', true)
           .select((eb) =>
-            jsonArrayFrom(eb.selectNoFrom('prayers.user_id')).as('users'),
+            jsonArrayFrom(eb.selectNoFrom('corporate_prayers.user_id')).as(
+              'users',
+            ),
           )
           .executeTakeFirstOrThrow(),
         this.dbService
@@ -350,69 +322,55 @@ export class NotificationsService {
           .where('users.uid', '=', userId)
           .executeTakeFirstOrThrow(),
       ]);
-      const target = [user_id, ...users.map(({ user_id }) => user_id)].filter(
+      _corporateName = title;
+      _username = username;
+      _members = [user_id, ...users.map(({ user_id }) => user_id)].filter(
         (value) => value != null && value !== userId,
       ) as string[];
-      if (target.length > 0) {
-        this.dbService
-          .insertInto('notifications')
-          .values(
-            target.map((id) => ({
-              user_id: id,
-              target_user_id: userId,
-              prayer_id: prayerId,
-              message: `${username} has posted a prayer`,
-            })),
-          )
-          .executeTakeFirst();
-        this.firebaseService.send({
-          userId: target,
-          title: title,
-          body: `${username} has posted a prayer`,
-          data: { prayerId },
-        });
-      }
     } else if (groupId) {
-      const [{ name, members }, { username }] = await Promise.all([
-        this.dbService
-          .selectFrom('groups')
-          .innerJoin('group_members', 'group_members.group_id', 'groups.id')
-          .where('groups.id', '=', groupId)
-          .select('groups.name')
-          .select((eb) =>
-            jsonArrayFrom(eb.selectNoFrom('group_members.user_id')).as(
-              'members',
-            ),
-          )
-          .executeTakeFirstOrThrow(),
-        this.dbService
-          .selectFrom('users')
-          .select('users.username')
-          .where('users.uid', '=', userId)
-          .executeTakeFirstOrThrow(),
-      ]);
-      const target = members
+      const { name, members, username } = await this.dbService
+        .selectFrom('groups')
+        .innerJoin(
+          'notification_group_settings',
+          'notification_group_settings.group_id',
+          'groups.id',
+        )
+        .innerJoin('group_members', 'group_members.group_id', 'groups.id')
+        .where('groups.id', '=', groupId)
+        .where(({ and, or, eb, selectFrom }) =>
+          or([
+            eb('notification_group_settings.on_post', 'is', true),
+            and([
+              eb(
+                selectFrom('group_members')
+                  .where('group_members.user_id', '=', userId)
+                  .where('group_members.group_id', '=', groupId)
+                  .select('moderator'),
+                'is not',
+                null,
+              ),
+              eb('notification_group_settings.on_moderator_post', 'is', true),
+            ]),
+          ]),
+        )
+        .select('groups.name')
+        .select((eb) =>
+          jsonArrayFrom(
+            eb.selectNoFrom('notification_group_settings.user_id'),
+          ).as('members'),
+        )
+        .select(({ selectFrom }) =>
+          selectFrom('users')
+            .select('users.username')
+            .where('users.uid', '=', userId)
+            .as('username'),
+        )
+        .executeTakeFirstOrThrow();
+      _groupName = name;
+      _username = username!;
+      _members = members
         .map(({ user_id }) => user_id)
         .filter((value) => value !== userId && value != null) as string[];
-      if (target.length > 0) {
-        this.dbService
-          .insertInto('notifications')
-          .values(
-            target.map((id) => ({
-              user_id: id,
-              target_user_id: userId,
-              prayer_id: prayerId,
-              message: `${username} has posted a prayer`,
-            })),
-          )
-          .executeTakeFirst();
-        this.firebaseService.send({
-          userId: target,
-          title: name,
-          body: `${username} has posted a prayer`,
-          data: { prayerId },
-        });
-      }
     } else {
       const data = await this.dbService
         .selectFrom('users')
@@ -424,29 +382,39 @@ export class NotificationsService {
             'followings',
           ),
         )
-        .executeTakeFirst();
-      if (data == null) {
-        return;
-      }
-      const target = data.followings
+        .executeTakeFirstOrThrow();
+      _username = data.username;
+      _members = data.followings
         .map(({ following_id }) => following_id)
         .filter((v) => v != null) as string[];
-      if (target.length > 0) {
-        this.dbService.insertInto('notifications').values(
-          target.map((following) => ({
-            user_id: following,
-            message: `${data.username} has posted a prayer`,
+    }
+    if (_members.length > 0) {
+      this.dbService
+        .insertInto('notifications')
+        .values(
+          _members.map((id) => ({
+            user_id: id,
             target_user_id: userId,
             prayer_id: prayerId,
+            type: 'prayer_posted',
           })),
-        );
-        this.firebaseService.send({
-          userId: target,
-          title: 'Prayer',
-          body: `${data.username} has posted a prayer`,
-          data: { corporateId: prayerId },
-        });
-      }
+        )
+        .executeTakeFirst();
+      const data = {
+        prayerId,
+        corporateId,
+        groupId,
+        username: _username,
+        groupName: _groupName,
+        corporateName: _corporateName,
+      };
+      Object.keys(data).forEach((key) =>
+        data[key] === undefined ? delete data[key] : {},
+      );
+      this.firebaseService.send({
+        userId: _members,
+        data: data as any,
+      });
     }
   }
 }

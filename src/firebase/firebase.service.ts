@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { credential, messaging } from 'firebase-admin';
 import { initializeApp } from 'firebase-admin/app';
 import { KyselyService } from 'src/kysely/kysely.service';
+import { DB } from 'prisma/generated/types';
 
 function splitArrayIntoChunks(array: string[], chunkSize: number) {
   const result: string[][] = [];
@@ -33,14 +34,22 @@ export class FirebaseService {
 
   async send(params: {
     userId: string[];
-    title: string;
-    body: string;
+    title?: string;
+    body?: string;
     imageUrl?: string;
-    data: { [key: string]: string };
+    data?: { [key: string]: string; type: DB['notifications']['type'] };
   }) {
     if (process.env.DISABLE_NOTIFICATION === 'true') {
       return;
     }
+    if (params.data != null) {
+      Object.keys(params.data).forEach((key) => {
+        if (params.data![key] === null) {
+          delete params.data![key];
+        }
+      });
+    }
+    params.userId = [...new Set(params.userId)];
     try {
       const tokens = (
         await this.dbService
@@ -55,11 +64,14 @@ export class FirebaseService {
           messaging().sendEachForMulticast({
             tokens: t,
             data: params.data,
-            notification: {
-              title: params.title,
-              body: params.body,
-              imageUrl: params.imageUrl,
-            },
+            notification:
+              params.body == null
+                ? undefined
+                : {
+                    title: params.title,
+                    body: params.body,
+                    imageUrl: params.imageUrl,
+                  },
           }),
         ),
       );
@@ -78,7 +90,6 @@ export class FirebaseService {
       }
     } catch (e) {
       Sentry.captureException(e);
-      console.error(e);
     }
   }
 }
