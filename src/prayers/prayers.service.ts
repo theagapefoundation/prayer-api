@@ -915,12 +915,38 @@ export class PrayersService {
     };
   }
 
-  fetchPrayerPray(prayId: number) {
-    return this.dbService
+  async fetchPrayerPray(prayId: number) {
+    const data = await this.dbService
       .selectFrom('prayer_prays')
+      .innerJoin('users', 'users.uid', 'prayer_prays.user_id')
+      .leftJoin('contents', 'contents.id', 'users.profile')
       .where('prayer_prays.id', '=', prayId)
-      .selectAll()
+      .selectAll(['prayer_prays'])
+      .select(({ eb }) =>
+        jsonObjectFrom(
+          eb.selectNoFrom([
+            'users.uid',
+            'users.profile',
+            'users.username',
+            'users.name',
+          ]),
+        ).as('user'),
+      )
+      .select('contents.path')
       .executeTakeFirst();
+    if (data == null) {
+      return null;
+    }
+    return {
+      ...data,
+      user: {
+        ...data.user,
+        profile:
+          data.path == null
+            ? null
+            : this.storageService.publicBucket.file(data.path).publicUrl(),
+      },
+    };
   }
 
   deletePrayerPray(prayId: number) {
