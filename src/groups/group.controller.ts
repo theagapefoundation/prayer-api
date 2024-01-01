@@ -16,7 +16,6 @@ import { AuthGuard } from 'src/auth/auth.guard';
 import {
   AcceptRequestGroupDto,
   InviteUserToGroupDto,
-  JoinGroupDto,
 } from './groups.interface';
 import { NoResultError } from 'kysely';
 import {
@@ -43,24 +42,35 @@ export class GroupController {
   @UseGuards(AuthGuard)
   @UseGuards(MustUnbanned)
   @Post('join')
-  async joinGroup(
+  async joinGroup(@User() user: UserEntity, @Param('groupId') groupId: string) {
+    try {
+      const { accepted_at } = await this.appService.joinGroup({
+        groupId,
+        userId: user.sub,
+      });
+      this.notificationService.notifyJoinGroup(
+        groupId,
+        user.sub,
+        accepted_at == null,
+      );
+      return accepted_at;
+    } catch (e) {
+      if (e instanceof NoResultError) {
+        throw new TargetNotFoundError('Unable to find the group to join');
+      }
+      throw e;
+    }
+  }
+
+  @UseInterceptors(ResponseInterceptor)
+  @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
+  @Delete('join')
+  async leaveGroup(
     @User() user: UserEntity,
     @Param('groupId') groupId: string,
-    @Body() { value }: JoinGroupDto,
   ) {
     try {
-      if (value) {
-        const { accepted_at } = await this.appService.joinGroup({
-          groupId,
-          userId: user.sub,
-        });
-        this.notificationService.notifyJoinGroup(
-          groupId,
-          user.sub,
-          accepted_at == null,
-        );
-        return accepted_at;
-      }
       await this.appService.leaveGroup({
         groupId,
         userId: user.sub,
@@ -69,7 +79,7 @@ export class GroupController {
       return 'success';
     } catch (e) {
       if (e instanceof NoResultError) {
-        throw new TargetNotFoundError('Unable to find the group to join');
+        throw new TargetNotFoundError('Unable to find the group');
       }
       throw e;
     }
@@ -174,13 +184,13 @@ export class GroupController {
   @Post('promote')
   async handleModerators(
     @Param('groupId') groupId: string,
-    @Body() { userId, value }: AcceptRequestGroupDto,
+    @Body() { userId }: AcceptRequestGroupDto,
     @User() user: UserEntity,
   ) {
     await this.appService.handleModerator({
       groupId,
       userId,
-      value,
+      value: true,
       requestUser: user.sub,
     });
     this.notificationService.notifyMemberPromoted(groupId, userId);

@@ -1,6 +1,5 @@
 import {
   IsArray,
-  IsBoolean,
   IsIn,
   IsNotEmpty,
   IsNumber,
@@ -39,17 +38,9 @@ export class UpdateGroupDto {
   banner?: number;
 }
 
-export class JoinGroupDto {
-  @IsBoolean()
-  value: boolean;
-}
-
 export class AcceptRequestGroupDto {
   @IsNotEmpty()
   userId: string;
-
-  @IsBoolean()
-  value: boolean;
 }
 
 export class InviteUserToGroupDto {

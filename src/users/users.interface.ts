@@ -1,5 +1,4 @@
 import {
-  IsBoolean,
   IsEmail,
   IsNotEmpty,
   IsNumber,
@@ -39,11 +38,6 @@ export class UpdateUserDto {
 export class CreateFcmDto {
   @IsNotEmpty()
   value: string;
-}
-
-export class FollowUserDto {
-  @IsBoolean()
-  value: boolean;
 }
 
 export class CreateUserDto {

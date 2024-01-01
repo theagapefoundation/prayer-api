@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -68,6 +69,7 @@ export class CreatePrayerDto {
 
   @IsOptional()
   @IsBoolean()
+  @Transform(({ value }) => value === true || value === 'true')
   anon?: boolean;
 
   @IsNotEmpty()

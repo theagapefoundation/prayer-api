@@ -13,12 +13,7 @@ import {
 import { User, UserEntity } from 'src/auth/auth.decorator';
 import { ResponseInterceptor } from 'src/response.interceptor';
 import { UsersService } from 'src/users/users.service';
-import {
-  CreateFcmDto,
-  CreateUserDto,
-  FollowUserDto,
-  UpdateUserDto,
-} from './users.interface';
+import { CreateFcmDto, CreateUserDto, UpdateUserDto } from './users.interface';
 import { AuthGuard } from 'src/auth/auth.guard';
 import {
   FollowMyselfError,
@@ -138,10 +133,28 @@ export class UsersController {
 
   @UseGuards(AuthGuard)
   @Post(':userId/follows')
-  async followUser(
+  async followUser(@User() user: UserEntity, @Param('userId') userId: string) {
+    try {
+      if (user.sub === userId) {
+        throw new FollowMyselfError();
+      }
+      await this.appService.handleFollowings({
+        following: user.sub,
+        follower: userId,
+        value: true,
+      });
+      this.notificationService.notifyUserFollowed(user.sub, userId);
+      return { success: true };
+    } catch (e) {
+      return { success: false };
+    }
+  }
+
+  @UseGuards(AuthGuard)
+  @Delete(':userId/follows')
+  async unfollowUser(
     @User() user: UserEntity,
     @Param('userId') userId: string,
-    @Body() { value }: FollowUserDto,
   ) {
     try {
       if (user.sub === userId) {
@@ -150,11 +163,8 @@ export class UsersController {
       await this.appService.handleFollowings({
         following: user.sub,
         follower: userId,
-        value,
+        value: false,
       });
-      if (value) {
-        this.notificationService.notifyUserFollowed(user.sub, userId);
-      }
       return { success: true };
     } catch (e) {
       return { success: false };
@@ -164,10 +174,28 @@ export class UsersController {
   @UseGuards(AuthGuard)
   @UseGuards(MustUnbanned)
   @Post(':userId/blocks')
-  async blockUsers(
+  async blockUsers(@User() user: UserEntity, @Param('userId') userId: string) {
+    try {
+      if (user.sub === userId) {
+        throw new FollowMyselfError();
+      }
+      await this.appService.handleBlocks({
+        userId: user.sub,
+        targetId: userId,
+        value: true,
+      });
+      return { success: true };
+    } catch (e) {
+      return { success: false };
+    }
+  }
+
+  @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
+  @Delete(':userId/blocks')
+  async unblockUsers(
     @User() user: UserEntity,
     @Param('userId') userId: string,
-    @Body() { value }: FollowUserDto,
   ) {
     try {
       if (user.sub === userId) {
@@ -176,7 +204,7 @@ export class UsersController {
       await this.appService.handleBlocks({
         userId: user.sub,
         targetId: userId,
-        value,
+        value: false,
       });
       return { success: true };
     } catch (e) {
