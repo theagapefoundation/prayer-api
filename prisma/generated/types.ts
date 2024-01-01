@@ -172,7 +172,6 @@ export type notification_group_settings = {
 export type notifications = {
     id: Generated<number>;
     user_id: string;
-    message: string | null;
     group_id: string | null;
     pray_id: number | null;
     prayer_id: string | null;

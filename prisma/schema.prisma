@@ -171,7 +171,6 @@ model group_invitations {
 model notifications {
   id             Int               @id @unique @default(autoincrement())
   user_id        String            @db.VarChar(40)
-  message        String?           @db.VarChar(100)
   group_id       String?           @db.Uuid
   pray_id        Int?              @db.Integer
   prayer_id      String?           @db.Uuid
