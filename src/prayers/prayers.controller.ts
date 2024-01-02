@@ -459,15 +459,17 @@ export class PrayersController {
     @Body() { prayerId, value }: CreatePrayerPrayDto,
   ) {
     try {
-      const data = await this.appService.fetchLatestPrayerPray(
-        prayerId,
-        user.sub,
-      );
-      if (data?.created_at != null) {
-        const now = new Date();
-        const diff = now.getTime() - data.created_at.getTime();
-        if (diff < 1000 * 60 * 5) {
-          throw new Error('Need at least 5 minutes to repray');
+      if (!value) {
+        const data = await this.appService.fetchLatestPrayerPray(
+          prayerId,
+          user.sub,
+        );
+        if (data?.created_at != null) {
+          const now = new Date();
+          const diff = now.getTime() - data.created_at.getTime();
+          if (diff < 1000 * 60 * 5) {
+            throw new Error('Need at least 5 minutes to repray');
+          }
         }
       }
       const { id } = await this.appService.createPrayerPray({
