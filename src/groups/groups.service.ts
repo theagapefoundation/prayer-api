@@ -679,7 +679,7 @@ export class GroupsService {
         .leftJoin('group_bans', 'group_bans.group_id', 'groups.id')
         .where('groups.id', '=', groupId)
         .select(['groups.admin_id', 'group_bans.created_at as banned_at'])
-        .groupBy(['group_bans.id'])
+        .groupBy(['group_bans.id', 'groups.id'])
         .executeTakeFirstOrThrow();
       if (banned_at != null) {
         throw new OperationNotAllowedError('Group has been banned');
