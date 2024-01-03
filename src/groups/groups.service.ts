@@ -344,7 +344,7 @@ export class GroupsService {
           'contents.path as banner',
           'group_bans.created_at as banned_at',
         ])
-        .groupBy(['group_bans.created_at'])
+        .groupBy(['groups.id', 'contents.id', 'group_bans.created_at'])
         .executeTakeFirstOrThrow();
       if (banned_at != null) {
         throw new OperationNotAllowedError('This group has been banned');
