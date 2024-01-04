@@ -96,7 +96,7 @@ export class PrayersService {
     }
     return {
       ...data,
-      prayers_count: parseInt(data?.prayers ?? '0', 10),
+      prayers_count: parseInt(data?.prayers_count ?? '0', 10),
     };
   }
 
