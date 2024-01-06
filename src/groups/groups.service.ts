@@ -300,28 +300,35 @@ export class GroupsService {
   }) {
     const newId = v4();
     await this.dbService.transaction().execute(async (trx) => {
-      await Promise.all([
-        trx
-          .insertInto('groups')
-          .values({
-            id: newId,
-            name: body.name,
-            admin_id: body.admin,
-            description: body.description,
-            membership_type: body.membershipType,
-            banner: body.banner!,
-          })
-          .executeTakeFirst(),
-        trx
-          .insertInto('group_members')
-          .values({
-            user_id: body.admin,
-            group_id: newId,
-            moderator: new Date(),
-            accepted_at: new Date(),
-          })
-          .executeTakeFirst(),
-      ]);
+      await trx
+        .insertInto('groups')
+        .values({
+          id: newId,
+          name: body.name,
+          admin_id: body.admin,
+          description: body.description,
+          membership_type: body.membershipType,
+          banner: body.banner!,
+        })
+        .executeTakeFirst();
+      await trx
+        .insertInto('group_members')
+        .values({
+          user_id: body.admin,
+          group_id: newId,
+          moderator: new Date(),
+          accepted_at: new Date(),
+        })
+        .executeTakeFirst();
+      trx
+        .insertInto('notification_group_settings')
+        .values({
+          group_id: newId,
+          user_id: body.admin,
+          on_moderator_post: true,
+          on_post: true,
+        })
+        .executeTakeFirst();
     });
     return newId;
   }

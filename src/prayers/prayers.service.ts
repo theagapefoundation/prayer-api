@@ -836,6 +836,18 @@ export class PrayersService {
         .returning(['corporate_prayers.id'])
         .executeTakeFirstOrThrow();
 
+      if (rest.id == null) {
+        trx
+          .insertInto('notification_corporate_settings')
+          .values({
+            corporate_id: id,
+            user_id: user_id as string,
+            on_post: true,
+            on_reminder: true,
+          })
+          .executeTakeFirst();
+      }
+
       return { id };
     });
   }
