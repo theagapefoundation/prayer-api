@@ -52,8 +52,8 @@ export class CreateOrUpdateCorporatePrayerDto {
   @IsOptional()
   @IsArray()
   @IsInt({ each: true })
-  @Min(0, { each: true })
-  @Max(6, { each: true })
+  @Min(1, { each: true })
+  @Max(7, { each: true })
   @ArrayMaxSize(7)
   reminderDays?: number[];
 }
