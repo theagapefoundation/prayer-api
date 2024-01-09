@@ -467,8 +467,8 @@ export class PrayersService {
         ),
       )
       .$if(!!cursor, (qb) =>
-        qb.where(
-          sql<string>`CONCAT(LPAD(EXTRACT(EPOCH FROM MAX(prayer_prays.created_at)), 20, '0'), prayers.id)`,
+        qb.having(
+          sql<string>`CONCAT(LPAD(EXTRACT(EPOCH FROM MAX(prayer_prays.created_at))::text, 20, '0'), prayers.id)`,
           '<=',
           cursor!,
         ),
