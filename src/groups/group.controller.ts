@@ -33,12 +33,6 @@ export class GroupController {
   ) {}
 
   @UseInterceptors(ResponseInterceptor)
-  @Get()
-  async getGroup(@Param('groupId') groupId: string, @User() user?: UserEntity) {
-    return this.appService.fetchGroup(groupId, user?.sub);
-  }
-
-  @UseInterceptors(ResponseInterceptor)
   @UseGuards(AuthGuard)
   @UseGuards(MustUnbanned)
   @Post('join')
@@ -160,6 +154,12 @@ export class GroupController {
     const { data, cursor: newCursor } =
       await this.appService.fetchPendingInvites(groupId, cursor);
     return { createdAt: new Date().toISOString(), data, cursor: newCursor };
+  }
+
+  @UseInterceptors(ResponseInterceptor)
+  @Get()
+  async getGroup(@Param('groupId') groupId: string, @User() user?: UserEntity) {
+    return this.appService.fetchGroup(groupId, user?.sub);
   }
 
   @UseGuards(AuthGuard)
