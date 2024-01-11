@@ -475,7 +475,7 @@ export class PrayersController {
       const { id } = await this.appService.createPrayerPray({
         prayerId,
         userId: user.sub,
-        value,
+        value: !!value ? value : null,
       });
       this.notificationService.prayForUser({
         prayerId,

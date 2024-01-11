@@ -759,7 +759,7 @@ export class PrayersService {
   }: {
     prayerId: string;
     userId: string;
-    value?: string;
+    value?: string | null;
   }) {
     return this.dbService
       .insertInto('prayer_prays')
