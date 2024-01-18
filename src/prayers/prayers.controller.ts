@@ -27,10 +27,12 @@ import {
   OperationNotAllowedError,
   PrivateGroupError,
   TargetNotFoundError,
+  TooManyPray,
 } from 'src/errors/common.error';
 import { GroupsService } from 'src/groups/groups.service';
 import { NotificationsService } from 'src/notifications/notifications.service';
 import { MustUnbanned } from 'src/users/users.guard';
+import { RemindersService } from 'src/reminders/reminders.service';
 
 @Controller('prayers')
 export class PrayersController {
@@ -38,6 +40,7 @@ export class PrayersController {
     private appService: PrayersService,
     private groupService: GroupsService,
     private notificationService: NotificationsService,
+    private remindersService: RemindersService,
   ) {}
 
   @Get('by/user/:userId')
@@ -48,7 +51,7 @@ export class PrayersController {
   ) {
     const { data, cursor: newCursor } = await this.appService.fetchPrayers({
       userId,
-      requestUser: user?.sub,
+      requestUserId: user?.sub,
       cursor,
       hideAnonymous: userId !== user?.sub,
     });
@@ -92,7 +95,7 @@ export class PrayersController {
 
     const { data, cursor: newCursor } = await this.appService.fetchPrayers({
       groupId,
-      requestUser: user?.sub,
+      requestUserId: user?.sub,
       cursor,
     });
     return {
@@ -132,7 +135,8 @@ export class PrayersController {
     if (data?.user_id !== user.sub) {
       throw new OperationNotAllowedError('Only owner can delete the post');
     }
-    return this.appService.deleteCorporatePrayer(prayerId);
+    await this.appService.deleteCorporatePrayer(prayerId);
+    this.notificationService.cleanupNotification({ corporateId: prayerId });
   }
 
   @Get('corporate/:prayerId/prayers')
@@ -153,7 +157,7 @@ export class PrayersController {
     }
     const { data, cursor: newCursor } = await this.appService.fetchPrayers({
       corporateId: prayerId,
-      requestUser: user?.sub,
+      requestUserId: user?.sub,
       cursor,
     });
     return {
@@ -182,7 +186,7 @@ export class PrayersController {
     const { data, cursor: newCursor } =
       await this.appService.fetchGroupCorporatePrayers({
         groupId,
-        requestUser: user?.sub,
+        requestUserId: user?.sub,
         cursor,
         timezone: offsetInMinutes,
       });
@@ -212,6 +216,7 @@ export class PrayersController {
       throw new OperationNotAllowedError('Only owner can delete the post');
     }
     await this.appService.deletePrayer(prayerId);
+    this.notificationService.cleanupNotification({ prayerId });
     return 'success';
   }
 
@@ -344,14 +349,7 @@ export class PrayersController {
         );
       }
     }
-    if (
-      !!form.reminderTime != !!form.reminderText ||
-      !!form.reminderText != !!form.reminderDays
-    ) {
-      form.reminderDays = undefined;
-      form.reminderText = undefined;
-      form.reminderTime = undefined;
-    }
+    this.remindersService.validateParams(form);
     if (!!form.reminderTime && timezone == null) {
       throw new BadRequestError('Unable to fetch timezone at the moment');
     }
@@ -392,15 +390,7 @@ export class PrayersController {
           ? null
           : moment(form.endedAt).endOf('day').toDate(),
       created_at: new Date(),
-      reminders:
-        form.reminderDays == null
-          ? undefined
-          : {
-              days: JSON.stringify(form.reminderDays),
-              time:
-                form.reminderTime! + this.appService.minutesToString(timezone!),
-              value: form.reminderText!,
-            },
+      reminders: this.remindersService.buildDataForDb(form, timezone),
     });
     if (form.corporateId != id) {
       this.notificationService.notifyCorporatePrayerCreated({
@@ -422,7 +412,7 @@ export class PrayersController {
       await this.appService.fetchPrayersPrayedByUser({
         userId,
         cursor,
-        requestUser: user?.sub,
+        requestUserId: user?.sub,
       });
     return {
       createdAt: new Date().toISOString(),
@@ -440,7 +430,7 @@ export class PrayersController {
     const data = await this.appService.fetchPrayerPrays({
       prayerId,
       cursor,
-      requestUser: user?.sub,
+      requestUserId: user?.sub,
     });
     const newCursor = data.length < 11 ? null : data.pop();
     return {
@@ -458,34 +448,31 @@ export class PrayersController {
     @User() user: UserEntity,
     @Body() { prayerId, value }: CreatePrayerPrayDto,
   ) {
-    try {
-      if (!value) {
-        const data = await this.appService.fetchLatestPrayerPray(
-          prayerId,
-          user.sub,
-        );
-        if (data?.created_at != null) {
-          const now = new Date();
-          const diff = now.getTime() - data.created_at.getTime();
-          if (diff < 1000 * 60 * 5) {
-            throw new Error('Need at least 5 minutes to repray');
-          }
+    if (!value) {
+      const data = await this.appService.fetchLatestPrayerPray(
+        prayerId,
+        user.sub,
+      );
+      if (data?.created_at != null) {
+        const now = new Date();
+        const diff = now.getTime() - data.created_at.getTime();
+        if (diff < 1000 * 60 * 5) {
+          throw new TooManyPray();
         }
       }
-      const { id } = await this.appService.createPrayerPray({
-        prayerId,
-        userId: user.sub,
-        value: !!value ? value : null,
-      });
-      this.notificationService.prayForUser({
-        prayerId,
-        sender: user.sub,
-        prayId: id,
-      });
-      return 'success';
-    } catch (e) {
-      return 'false';
     }
+    const { id } = await this.appService.createPrayerPray({
+      prayerId,
+      userId: user.sub,
+      value: !!value ? value : null,
+      requestUserId: user.sub,
+    });
+    this.notificationService.prayForUser({
+      prayerId,
+      sender: user.sub,
+      prayId: id,
+    });
+    return 'success';
   }
 
   @UseInterceptors(ResponseInterceptor)
@@ -510,6 +497,31 @@ export class PrayersController {
       throw new OperationNotAllowedError('You can only delete your pray');
     }
     await this.appService.deletePrayerPray(prayId);
+    this.notificationService.cleanupNotification({ prayId });
+    return 'success';
+  }
+
+  @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
+  @UseInterceptors(ResponseInterceptor)
+  @Post(':prayerId/pin')
+  async pinnedGroupPrayer(
+    @Param('prayerId') prayerId: string,
+    @User() user: UserEntity,
+  ) {
+    await this.appService.pinnedGroupPrayer(prayerId, user.sub, true);
+    return 'success';
+  }
+
+  @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
+  @UseInterceptors(ResponseInterceptor)
+  @Delete(':prayerId/pin')
+  async unpinGroupPrayer(
+    @Param('prayerId') prayerId: string,
+    @User() user: UserEntity,
+  ) {
+    await this.appService.pinnedGroupPrayer(prayerId, user.sub, false);
     return 'success';
   }
 }

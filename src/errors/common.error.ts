@@ -62,3 +62,13 @@ export class NotEmptyResource extends BaseError {
     );
   }
 }
+
+export class TooManyPray extends BaseError {
+  constructor() {
+    super(
+      'You must wait to pray silently',
+      HttpStatus.BAD_REQUEST,
+      'too-many-pray',
+    );
+  }
+}

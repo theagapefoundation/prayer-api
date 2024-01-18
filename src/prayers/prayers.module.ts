@@ -7,6 +7,7 @@ import { PrayersController } from './prayers.controller';
 import { PrayersService } from './prayers.service';
 import { GroupsService } from 'src/groups/groups.service';
 import { NotificationsModule } from 'src/notifications/notifications.module';
+import { RemindersModule } from 'src/reminders/reminders.module';
 
 @Module({
   imports: [
@@ -15,8 +16,9 @@ import { NotificationsModule } from 'src/notifications/notifications.module';
     StorageModule,
     ConfigModule,
     NotificationsModule,
+    RemindersModule,
   ],
   controllers: [PrayersController],
-  providers: [PrayersService, GroupsService],
+  providers: [PrayersService, GroupsService, RemindersModule],
 })
 export class PrayersModule {}
