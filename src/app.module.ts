@@ -12,6 +12,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { BiblesModule } from './bibles/bibles.module';
 import { HttpExceptionFilter } from './exception.filter';
 import { RavenInterceptor, RavenModule } from 'nest-raven';
+import { RemindersModule } from './reminders/reminders.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { RavenInterceptor, RavenModule } from 'nest-raven';
     NotificationsModule,
     BiblesModule,
     RavenModule,
+    RemindersModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: UserGuard },
