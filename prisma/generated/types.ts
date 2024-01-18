@@ -137,6 +137,12 @@ export type group_invitations = {
     group_id: string;
     created_at: Generated<Timestamp>;
 };
+export type group_member_bans = {
+    id: Generated<number>;
+    user_id: string;
+    group_id: string;
+    created_at: Generated<Timestamp>;
+};
 export type group_members = {
     id: Generated<number>;
     user_id: string;
@@ -145,13 +151,30 @@ export type group_members = {
     moderator: Timestamp | null;
     created_at: Generated<Timestamp>;
 };
+export type group_pinned_prayers = {
+    id: Generated<number>;
+    user_id: string;
+    group_id: string;
+    prayer_id: string;
+    created_at: Generated<Timestamp>;
+};
+export type group_rules = {
+    id: Generated<number>;
+    group_id: string;
+    title: string;
+    description: string;
+    created_at: Generated<Timestamp>;
+};
 export type groups = {
     id: Generated<string>;
     name: string;
     description: string;
+    welcome_title: string | null;
+    welcome_message: string | null;
     admin_id: string;
     banner: number;
     membership_type: membership_type;
+    reminder_id: number | null;
     updated_at: Generated<Timestamp>;
     created_at: Generated<Timestamp>;
 };
@@ -256,7 +279,10 @@ export type DB = {
     corporate_prayers: corporate_prayers;
     group_bans: group_bans;
     group_invitations: group_invitations;
+    group_member_bans: group_member_bans;
     group_members: group_members;
+    group_pinned_prayers: group_pinned_prayers;
+    group_rules: group_rules;
     groups: groups;
     notification_corporate_settings: notification_corporate_settings;
     notification_group_settings: notification_group_settings;
