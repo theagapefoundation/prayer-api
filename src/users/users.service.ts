@@ -92,12 +92,12 @@ export class UsersService {
   async searchUsers({
     query,
     cursor,
-    requestUser,
+    requestUserId,
     excludeGroupId,
   }: {
     query?: string;
     cursor?: string;
-    requestUser?: string;
+    requestUserId?: string;
     excludeGroupId?: string;
   }) {
     const data = await this.dbService
@@ -112,12 +112,12 @@ export class UsersService {
           )
           .where('group_members.id', 'is', null),
       )
-      .$if(!!requestUser, (qb) =>
+      .$if(!!requestUserId, (qb) =>
         qb
           .leftJoin('user_blocks', (join) =>
             join
               .onRef('user_blocks.user_id', '=', 'users.uid')
-              .on('user_blocks.target_id', '=', requestUser!),
+              .on('user_blocks.target_id', '=', requestUserId!),
           )
           .where('user_blocks.id', 'is', null),
       )
@@ -168,33 +168,33 @@ export class UsersService {
 
   async fetchUser({
     userId,
-    requestUserId,
+    requestUserIdId,
     username,
   }: {
     userId?: string;
-    requestUserId?: string;
+    requestUserIdId?: string;
     username?: string;
   }) {
     const data = await this.dbService
       .selectFrom('users')
       .$if(!!userId, (eb) => eb.where('uid', '=', userId!))
       .$if(!!username, (eb) => eb.where('username', '=', username!))
-      .$if(!!requestUserId && requestUserId !== userId, (qb) =>
+      .$if(!!requestUserIdId && requestUserIdId !== userId, (qb) =>
         qb
           .leftJoin('user_follows', (join) =>
             join
               .onRef('user_follows.follower_id', '=', 'users.uid')
-              .on('user_follows.following_id', '=', requestUserId!),
+              .on('user_follows.following_id', '=', requestUserIdId!),
           )
           .leftJoin('user_blocks as my_block', (join) =>
             join
               .onRef('my_block.target_id', '=', 'users.uid')
-              .on('my_block.user_id', '=', requestUserId!),
+              .on('my_block.user_id', '=', requestUserIdId!),
           )
           .leftJoin('user_blocks as target_block', (join) =>
             join
               .onRef('target_block.user_id', '=', 'users.uid')
-              .on('target_block.target_id', '=', requestUserId!),
+              .on('target_block.target_id', '=', requestUserIdId!),
           )
           .select([
             'user_follows.created_at as followed_at',
@@ -486,6 +486,10 @@ export class UsersService {
         trx
           .deleteFrom('notifications')
           .where('notifications.user_id', '=', userId)
+          .executeTakeFirst();
+        trx
+          .deleteFrom('notifications')
+          .where('notifications.target_user_id', '=', userId)
           .executeTakeFirst();
         trx
           .deleteFrom('prayer_prays')

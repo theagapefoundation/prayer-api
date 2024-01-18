@@ -40,7 +40,7 @@ export class UsersController {
       query,
       cursor: oldCursor,
       excludeGroupId,
-      requestUser: user?.sub,
+      requestUserId: user?.sub,
     });
     return {
       data,
@@ -59,7 +59,7 @@ export class UsersController {
   @UseInterceptors(ResponseInterceptor)
   @Get(':id')
   async fetchUser(@Param('id') userId: string, @User() user?: UserEntity) {
-    return this.appService.fetchUser({ userId, requestUserId: user?.sub });
+    return this.appService.fetchUser({ userId, requestUserIdId: user?.sub });
   }
 
   @UseGuards(AuthGuard)
@@ -128,7 +128,7 @@ export class UsersController {
     @Param('username') username: string,
     @User() user?: UserEntity,
   ) {
-    return this.appService.fetchUser({ username, requestUserId: user?.sub });
+    return this.appService.fetchUser({ username, requestUserIdId: user?.sub });
   }
 
   @UseGuards(AuthGuard)
