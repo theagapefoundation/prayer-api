@@ -14,11 +14,13 @@ async function bootstrap() {
     new FastifyAdapter(),
   );
 
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    tracesSampleRate: 1.0,
-    release: 'prayer-api@' + process.env.VERSION,
-  });
+  if (process.env.NODE_ENV !== 'development') {
+    Sentry.init({
+      dsn: process.env.SENTRY_DSN,
+      tracesSampleRate: 1.0,
+      release: 'prayer-api@' + process.env.VERSION,
+    });
+  }
 
   app.enableVersioning({
     prefix: 'v',
