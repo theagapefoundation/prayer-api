@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Query,
   UseGuards,
   UseInterceptors,
@@ -16,6 +17,7 @@ import { AuthGuard } from 'src/auth/auth.guard';
 import {
   AcceptRequestGroupDto,
   InviteUserToGroupDto,
+  UpdateGroupDto,
 } from './groups.interface';
 import { NoResultError } from 'kysely';
 import {
@@ -24,12 +26,15 @@ import {
 } from 'src/errors/common.error';
 import { NotificationsService } from 'src/notifications/notifications.service';
 import { MustUnbanned } from 'src/users/users.guard';
+import { Timezone } from 'src/timezone.guard';
+import { RemindersService } from 'src/reminders/reminders.service';
 
 @Controller('groups/:groupId')
 export class GroupController {
   constructor(
     private readonly appService: GroupsService,
     private readonly notificationService: NotificationsService,
+    private readonly remindersService: RemindersService,
   ) {}
 
   @UseInterceptors(ResponseInterceptor)
@@ -67,8 +72,7 @@ export class GroupController {
     try {
       await this.appService.leaveGroup({
         groupId,
-        userId: user.sub,
-        requestUser: user.sub,
+        requestUserId: user.sub,
       });
       return 'success';
     } catch (e) {
@@ -85,14 +89,13 @@ export class GroupController {
     @Query('query') query?: string,
     @Query('cursor') cursor?: string,
   ) {
-    const { data, cursor: newCursor } = await this.appService.fetchMembers(
+    const { data, cursor: newCursor } = await this.appService.fetchMembers({
       groupId,
-      {
-        query,
-        cursor,
-        moderator: true,
-      },
-    );
+      query,
+      cursor,
+      moderator: true,
+      bans: false,
+    });
     return { createdAt: new Date().toISOString(), data, cursor: newCursor };
   }
 
@@ -102,19 +105,40 @@ export class GroupController {
     @Query('cursor') cursor?: string,
     @Query('query') query?: string,
   ) {
-    const { data, cursor: newCursor } = await this.appService.fetchMembers(
+    const { data, cursor: newCursor } = await this.appService.fetchMembers({
       groupId,
-      {
-        cursor,
-        query,
-        moderator: false,
-      },
-    );
+      cursor,
+      query,
+      moderator: false,
+      bans: false,
+    });
     return {
       createdAt: new Date().toISOString(),
       data,
       cursor: newCursor,
     };
+  }
+
+  @Get('bans')
+  @UseGuards(AuthGuard)
+  async fetchBans(
+    @User() user: UserEntity,
+    @Param('groupId') groupId: string,
+    @Query('cursor') cursor?: string,
+    @Query('query') query?: string,
+  ) {
+    if (!(await this.appService.checkModerator(groupId, user.sub))) {
+      throw new OperationNotAllowedError(
+        'Only moderators are able to see the requests',
+      );
+    }
+    const { data, cursor: newCursor } = await this.appService.fetchMembers({
+      groupId,
+      query,
+      cursor,
+      bans: true,
+    });
+    return { createdAt: new Date().toISOString(), data, cursor: newCursor };
   }
 
   @Get('requests')
@@ -123,19 +147,20 @@ export class GroupController {
     @User() user: UserEntity,
     @Param('groupId') groupId: string,
     @Query('cursor') cursor?: string,
+    @Query('query') query?: string,
   ) {
     if (!(await this.appService.checkModerator(groupId, user.sub))) {
       throw new OperationNotAllowedError(
         'Only moderators are able to see the requests',
       );
     }
-    const { data, cursor: newCursor } = await this.appService.fetchMembers(
+    const { data, cursor: newCursor } = await this.appService.fetchMembers({
       groupId,
-      {
-        cursor,
-        requests: true,
-      },
-    );
+      query,
+      cursor,
+      requests: true,
+      bans: false,
+    });
     return { createdAt: new Date().toISOString(), data, cursor: newCursor };
   }
 
@@ -145,6 +170,7 @@ export class GroupController {
     @User() user: UserEntity,
     @Param('groupId') groupId: string,
     @Query('cursor') cursor?: number,
+    @Query('query') query?: string,
   ) {
     if (!(await this.appService.checkModerator(groupId, user.sub))) {
       throw new OperationNotAllowedError(
@@ -152,7 +178,7 @@ export class GroupController {
       );
     }
     const { data, cursor: newCursor } =
-      await this.appService.fetchPendingInvites(groupId, cursor);
+      await this.appService.fetchPendingInvites({ groupId, cursor, query });
     return { createdAt: new Date().toISOString(), data, cursor: newCursor };
   }
 
@@ -173,7 +199,7 @@ export class GroupController {
     await this.appService.handleRequest({
       groupId,
       userId,
-      requestUser: user.sub,
+      requestUserId: user.sub,
     });
     this.notificationService.notifyGroupRequestAccepted(groupId, userId);
     return 'success';
@@ -182,7 +208,7 @@ export class GroupController {
   @UseGuards(AuthGuard)
   @UseGuards(MustUnbanned)
   @Post('promote')
-  async handleModerators(
+  async promoteMember(
     @Param('groupId') groupId: string,
     @Body() { userId }: AcceptRequestGroupDto,
     @User() user: UserEntity,
@@ -191,9 +217,76 @@ export class GroupController {
       groupId,
       userId,
       value: true,
-      requestUser: user.sub,
+      requestUserId: user.sub,
     });
     this.notificationService.notifyMemberPromoted(groupId, userId);
+    return 'success';
+  }
+
+  @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
+  @Delete('promote')
+  async revokeModerator(
+    @Param('groupId') groupId: string,
+    @Body() { userId }: AcceptRequestGroupDto,
+    @User() user: UserEntity,
+  ) {
+    await this.appService.handleModerator({
+      groupId,
+      userId,
+      value: false,
+      requestUserId: user.sub,
+    });
+    return 'success';
+  }
+
+  @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
+  @Post('bans')
+  async banMember(
+    @Param('groupId') groupId: string,
+    @Body() { userId }: AcceptRequestGroupDto,
+    @User() user: UserEntity,
+  ) {
+    await this.appService.handleBan({
+      groupId,
+      userId,
+      value: true,
+      requestUserId: user.sub,
+    });
+    return 'success';
+  }
+
+  @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
+  @Delete('bans')
+  async unbanMember(
+    @Param('groupId') groupId: string,
+    @Body() { userId }: AcceptRequestGroupDto,
+    @User() user: UserEntity,
+  ) {
+    await this.appService.handleBan({
+      groupId,
+      userId,
+      value: false,
+      requestUserId: user.sub,
+    });
+    return 'success';
+  }
+
+  @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
+  @Post('kick')
+  async kickUser(
+    @Param('groupId') groupId: string,
+    @Body() { userId }: AcceptRequestGroupDto,
+    @User() user: UserEntity,
+  ) {
+    await this.appService.handleKick({
+      groupId,
+      userId,
+      requestUserId: user.sub,
+    });
     return 'success';
   }
 
@@ -210,7 +303,7 @@ export class GroupController {
       groupId,
       userIds: value,
       value: true,
-      requestUser: user.sub,
+      requestUserId: user.sub,
     });
     return 'success';
   }
@@ -228,8 +321,44 @@ export class GroupController {
       groupId,
       userIds: value,
       value: false,
-      requestUser: user.sub,
+      requestUserId: user.sub,
     });
+    return 'success';
+  }
+
+  @UseGuards(AuthGuard)
+  @UseGuards(MustUnbanned)
+  @UseInterceptors(ResponseInterceptor)
+  @Put()
+  async editGroup(
+    @User() user: UserEntity,
+    @Body() body: UpdateGroupDto,
+    @Param('groupId') groupId: string,
+    @Timezone() timezone: number | null,
+  ) {
+    await this.appService.updateGroup({
+      name: body.name,
+      description: body.description,
+      banner: body.banner || undefined,
+      groupId,
+      requestUserId: user.sub,
+      rules: body.rules,
+      reminders: this.remindersService.buildDataForDb(body, timezone),
+      welcomeTitle: body.welcomeTitle,
+      welcomeMessage: body.welcomeMessage,
+    });
+    return this.appService.fetchGroup(groupId, user?.sub);
+  }
+
+  @UseGuards(AuthGuard)
+  @UseInterceptors(ResponseInterceptor)
+  @Delete()
+  async deleteGroup(
+    @User() user: UserEntity,
+    @Param('groupId') groupId: string,
+  ) {
+    await this.appService.deleteGroup(groupId, user.sub);
+    this.notificationService.cleanupNotification({ groupId });
     return 'success';
   }
 }

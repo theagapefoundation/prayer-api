@@ -7,6 +7,8 @@ import { ConfigModule } from '@nestjs/config';
 import { StorageModule } from 'src/storage/storage.module';
 import { GroupController } from './group.controller';
 import { NotificationsModule } from 'src/notifications/notifications.module';
+import { RemindersService } from 'src/reminders/reminders.service';
+import { RemindersModule } from 'src/reminders/reminders.module';
 
 @Module({
   imports: [
@@ -15,8 +17,9 @@ import { NotificationsModule } from 'src/notifications/notifications.module';
     StorageModule,
     ConfigModule,
     NotificationsModule,
+    RemindersModule,
   ],
   controllers: [GroupsController, GroupController],
-  providers: [GroupsService],
+  providers: [GroupsService, RemindersService],
 })
 export class GroupsModule {}

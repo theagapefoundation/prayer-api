@@ -1,13 +1,16 @@
 import {
+  ArrayMaxSize,
   IsArray,
   IsIn,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   MaxLength,
 } from 'class-validator';
+import { BaseReminderDto } from 'src/reminders/reminders.interface';
 
-export class CreateGroupDto {
+export class CreateGroupDto extends BaseReminderDto {
   @IsNotEmpty()
   @MaxLength(30)
   name: string;
@@ -22,9 +25,25 @@ export class CreateGroupDto {
   @IsNumber()
   @IsNotEmpty()
   banner: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsObject({ each: true })
+  @ArrayMaxSize(10)
+  rules: any[];
+
+  @IsOptional()
+  @IsNotEmpty()
+  @MaxLength(300)
+  welcomeTitle?: string;
+
+  @IsOptional()
+  @IsNotEmpty()
+  @MaxLength(300)
+  welcomeMessage?: string;
 }
 
-export class UpdateGroupDto {
+export class UpdateGroupDto extends BaseReminderDto {
   @IsOptional()
   @MaxLength(30)
   name: string;
@@ -36,6 +55,22 @@ export class UpdateGroupDto {
   @IsOptional()
   @IsNumber()
   banner?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsObject({ each: true })
+  @ArrayMaxSize(10)
+  rules: any[];
+
+  @IsOptional()
+  @IsNotEmpty()
+  @MaxLength(300)
+  welcomeTitle?: string;
+
+  @IsOptional()
+  @IsNotEmpty()
+  @MaxLength(300)
+  welcomeMessage?: string;
 }
 
 export class AcceptRequestGroupDto {

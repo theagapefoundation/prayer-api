@@ -1,13 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { sql } from 'kysely';
-import { jsonObjectFrom } from 'kysely/helpers/postgres';
-import {
-  OperationNotAllowedError,
-  TargetNotFoundError,
-} from 'src/errors/common.error';
+import { InsertObject, sql } from 'kysely';
+import { jsonArrayFrom, jsonObjectFrom } from 'kysely/helpers/postgres';
+import { DB } from 'prisma/generated/types';
+import { OperationNotAllowedError } from 'src/errors/common.error';
 import { KyselyService } from 'src/kysely/kysely.service';
 import { StorageService } from 'src/storage/storage.service';
-import { v4 } from 'uuid';
 
 @Injectable()
 export class GroupsService {
@@ -20,7 +17,7 @@ export class GroupsService {
     const data = await this.dbService
       .selectFrom('groups')
       .where('groups.id', '=', groupId)
-      .leftJoin('contents as banner', 'banner.id', 'groups.banner')
+      .innerJoin('contents as banner', 'banner.id', 'groups.banner')
       .innerJoin('users as admin', 'admin.uid', 'groups.admin_id')
       .leftJoin(
         'contents as admin_content',
@@ -32,11 +29,18 @@ export class GroupsService {
           .onRef('members.group_id', '=', 'groups.id')
           .on('members.accepted_at', 'is not', null),
       )
+      .leftJoin('group_member_bans as members_bans', (join) =>
+        join
+          .onRef('members_bans.group_id', '=', 'members.group_id')
+          .onRef('members_bans.user_id', '=', 'members.user_id'),
+      )
+      .leftJoin('group_rules', 'group_rules.group_id', 'groups.id')
+      .leftJoin('reminders', 'groups.reminder_id', 'reminders.id')
+      .where('members_bans.id', 'is', null)
       .leftJoin('prayers', 'prayers.group_id', 'groups.id')
-      .leftJoin('group_invitations', 'group_invitations.group_id', 'groups.id')
       .leftJoin('group_bans', 'group_bans.group_id', 'groups.id')
       .selectAll(['groups'])
-      .select(({ fn }) => [
+      .select(({ eb, fn, exists, selectFrom }) => [
         fn
           .coalesce(
             fn.count<string>(sql`DISTINCT(members.user_id)`),
@@ -46,20 +50,29 @@ export class GroupsService {
         fn
           .coalesce(fn.count<string>(sql`DISTINCT(prayers.id)`), sql<string>`0`)
           .as('prayers_count'),
+        eb
+          .case()
+          .when(
+            exists(
+              selectFrom('group_rules').whereRef(
+                'group_rules.group_id',
+                '=',
+                'groups.id',
+              ),
+            ),
+          )
+          .then(
+            jsonArrayFrom(
+              selectFrom('group_rules')
+                .whereRef('group_rules.group_id', '=', 'groups.id')
+                .selectAll(),
+            ),
+          )
+          .else(null)
+          .end()
+          .as('rules'),
       ])
-      .select([
-        'group_invitations.created_at as invited_at',
-        'banner.path as banner',
-        'group_bans.created_at as banned_at',
-      ])
-      .groupBy([
-        'groups.id',
-        'admin.uid',
-        'invited_at',
-        'banner.path',
-        'admin_content.path',
-        'group_bans.id',
-      ])
+      .select(['banner.path as banner', 'group_bans.created_at as banned_at'])
       .select((eb) =>
         jsonObjectFrom(
           eb.selectNoFrom([
@@ -70,28 +83,63 @@ export class GroupsService {
           ]),
         ).as('admin'),
       )
-      .$if(!!userId, (eb) =>
+      .select((eb) =>
         eb
-          .leftJoin(
-            ({ selectFrom }) =>
-              selectFrom('group_members')
-                .select([
-                  'group_members.group_id',
-                  'group_members.created_at as joined_at',
-                  'group_members.moderator',
-                  'group_members.accepted_at',
-                ])
-                .where('group_members.user_id', '=', userId!)
-                .as('user'),
-            (join) => join.onRef('user.group_id', '=', 'groups.id'),
+          .case()
+          .when('reminders.id', 'is not', null)
+          .then(
+            jsonObjectFrom(
+              eb.selectNoFrom([
+                'reminders.id',
+                'reminders.value',
+                'reminders.days',
+                'reminders.created_at',
+                'reminders.time',
+              ]),
+            ),
           )
-          .groupBy([
-            'user.group_id',
-            'user.joined_at',
-            'user.moderator',
-            'user.accepted_at',
+          .else(null)
+          .end()
+          .as('reminder'),
+      )
+      .groupBy([
+        'groups.id',
+        'banner.id',
+        'admin.uid',
+        'admin_content.path',
+        'group_bans.id',
+        'reminders.id',
+      ])
+      .$if(!!userId, (qb) =>
+        qb
+          .leftJoin('group_members as member', (join) =>
+            join
+              .on('member.user_id', '=', userId!)
+              .onRef('member.group_id', '=', 'groups.id'),
+          )
+          .leftJoin('group_invitations', (join) =>
+            join
+              .onRef('group_invitations.group_id', '=', 'groups.id')
+              .on('group_invitations.user_id', '=', userId!),
+          )
+          .leftJoin('group_member_bans', (join) =>
+            join
+              .onRef('group_member_bans.group_id', '=', 'groups.id')
+              .on('group_member_bans.user_id', '=', userId!),
+          )
+          .select([
+            'group_invitations.created_at as invited_at',
+            'member.group_id',
+            'member.created_at as joined_at',
+            'member.moderator',
+            'member.accepted_at',
+            'group_member_bans.created_at as user_banned_at',
           ])
-          .selectAll('user'),
+          .groupBy([
+            'member.id',
+            'group_invitations.id',
+            'group_member_bans.id',
+          ]),
       )
       .executeTakeFirst();
     if (data == null) {
@@ -126,27 +174,10 @@ export class GroupsService {
       .innerJoin('users as admin', 'admin.uid', 'groups.admin_id')
       .leftJoin('contents as user_content', 'user_content.id', 'admin.profile')
       .innerJoin('group_members', 'group_members.group_id', 'groups.id')
-      .groupBy([
-        'group_invitations.id',
-        'groups.id',
-        'admin.uid',
-        'banner.path',
-        'user_content.path',
-      ])
       .where('group_invitations.user_id', '=', userId)
       .$if(!!cursor, (eb) => eb.where('group_invitations.id', '<=', cursor!))
       .where('group_members.accepted_at', 'is not', null)
       .orderBy('group_invitations.id desc')
-      .select((eb) =>
-        jsonObjectFrom(
-          eb.selectNoFrom([
-            'admin.uid',
-            'admin.username',
-            'user_content.path as profile',
-            'admin.name',
-          ]),
-        ).as('admin'),
-      )
       .select(({ fn }) =>
         fn
           .coalesce(
@@ -155,6 +186,16 @@ export class GroupsService {
           )
           .as('members_count'),
       )
+      .select(({ selectNoFrom }) =>
+        jsonObjectFrom(
+          selectNoFrom([
+            'admin.uid',
+            'admin.username',
+            'user_content.path as profile',
+            'admin.name',
+          ]),
+        ).as('admin'),
+      )
       .select([
         'group_invitations.id as cursor',
         'groups.id',
@@ -162,6 +203,13 @@ export class GroupsService {
         'groups.admin_id',
         'groups.membership_type',
         'banner.path as banner',
+      ])
+      .groupBy([
+        'group_invitations.id',
+        'groups.id',
+        'admin.uid',
+        'banner.path',
+        'user_content.path',
       ])
       .limit(11)
       .execute();
@@ -183,12 +231,12 @@ export class GroupsService {
     query,
     cursor,
     userId,
-    requestingUserId,
+    requestUserId,
   }: {
     query?: string;
     cursor?: string;
     userId?: string;
-    requestingUserId?: string;
+    requestUserId?: string;
   }) {
     const data = await this.dbService
       .selectFrom('groups')
@@ -199,22 +247,28 @@ export class GroupsService {
         'admin.profile',
       )
       .innerJoin('contents as banner', 'banner.id', 'groups.banner')
-      .innerJoin('group_members', 'group_members.group_id', 'groups.id')
       .innerJoin('group_members as group_members_count', (join) =>
         join
           .onRef('group_members_count.group_id', '=', 'groups.id')
           .on('group_members_count.accepted_at', 'is not', null),
       )
+      .leftJoin('group_member_bans as bans_count', (join) =>
+        join
+          .onRef('bans_count.group_id', '=', 'group_members_count.group_id')
+          .onRef('bans_count.user_id', '=', 'group_members_count.user_id'),
+      )
+      .where('bans_count.id', 'is', null)
       .groupBy(['groups.id', 'admin.uid', 'admin_content.path', 'banner.path'])
-      .where('groups.membership_type', '!=', 'private')
-      .$if(!!requestingUserId, (qb) =>
+      .$if(!requestUserId, (qb) =>
+        qb.where('groups.membership_type', '!=', 'private'),
+      )
+      .$if(!!requestUserId, (qb) =>
         qb
           .leftJoin('group_members as requester', (join) =>
             join
               .onRef('requester.group_id', '=', 'groups.id')
-              .on('requester.user_id', '=', requestingUserId!),
+              .on('requester.user_id', '=', requestUserId!),
           )
-          .clearWhere()
           .where(({ or, eb }) =>
             or([
               eb('groups.membership_type', '!=', 'private'),
@@ -230,7 +284,14 @@ export class GroupsService {
           ]),
         ),
       )
-      .$if(!!userId, (eb) => eb.where('group_members.user_id', '=', userId!))
+      .$if(!!userId, (eb) =>
+        eb.innerJoin('group_members', (join) =>
+          join
+            .onRef('group_members.group_id', '=', 'groups.id')
+            .on('group_members.accepted_at', 'is not', null)
+            .on('group_members.user_id', '=', userId!),
+        ),
+      )
       .$if(!!cursor, (eb) =>
         eb.where(
           sql<string>`CONCAT(EXTRACT(EPOCH FROM groups.created_at), groups.id)`,
@@ -238,8 +299,6 @@ export class GroupsService {
           Buffer.from(cursor!, 'base64url').toString(),
         ),
       )
-      .where('group_members.accepted_at', 'is not', null)
-      .orderBy(['groups.created_at desc', 'groups.id desc'])
       .select(
         sql<string>`CONCAT(EXTRACT(EPOCH FROM groups.created_at), groups.id)`.as(
           'cursor',
@@ -271,6 +330,7 @@ export class GroupsService {
         'groups.membership_type',
         'banner.path as banner',
       ])
+      .orderBy(['groups.created_at desc', 'groups.id desc'])
       .limit(11)
       .execute();
     const newCursor = data.length < 11 ? null : data.pop()?.cursor;
@@ -297,25 +357,50 @@ export class GroupsService {
     admin: string;
     membershipType: 'open' | 'restricted' | 'private';
     banner: number;
+    rules?: { title: string; description: string }[] | null | undefined;
+    reminders?: InsertObject<DB, 'reminders'> | null | undefined;
+    welcomeTitle?: string;
+    welcomeMessage?: string;
   }) {
-    const newId = v4();
-    await this.dbService.transaction().execute(async (trx) => {
-      await trx
+    const id = await this.dbService.transaction().execute(async (trx) => {
+      let reminderId: number | undefined;
+      if (body.reminders != null) {
+        const { id: r_id } = await trx
+          .insertInto('reminders')
+          .values({
+            days: body.reminders.days,
+            time: body.reminders.time,
+            value: body.reminders.value,
+          })
+          .returning('id')
+          .executeTakeFirstOrThrow();
+        reminderId = r_id;
+      }
+      const { id } = await trx
         .insertInto('groups')
         .values({
-          id: newId,
           name: body.name,
           admin_id: body.admin,
           description: body.description,
           membership_type: body.membershipType,
           banner: body.banner!,
+          reminder_id: reminderId,
+          welcome_title: body.welcomeTitle,
+          welcome_message: body.welcomeMessage,
         })
-        .executeTakeFirst();
-      await trx
+        .returning('groups.id')
+        .executeTakeFirstOrThrow();
+      if (body.rules != null && body.rules.length > 0) {
+        trx
+          .insertInto('group_rules')
+          .values(body.rules.map((rule) => ({ ...rule, group_id: id })))
+          .executeTakeFirst();
+      }
+      trx
         .insertInto('group_members')
         .values({
           user_id: body.admin,
-          group_id: newId,
+          group_id: id,
           moderator: new Date(),
           accepted_at: new Date(),
         })
@@ -323,14 +408,15 @@ export class GroupsService {
       trx
         .insertInto('notification_group_settings')
         .values({
-          group_id: newId,
+          group_id: id,
           user_id: body.admin,
           on_moderator_post: true,
           on_post: true,
         })
         .executeTakeFirst();
+      return id;
     });
-    return newId;
+    return id;
   }
 
   async updateGroup(body: {
@@ -338,31 +424,70 @@ export class GroupsService {
     name?: string;
     description?: string;
     banner?: number;
-    requestUser: string;
+    requestUserId: string;
+    rules?: { title: string; description: string }[] | null | undefined;
+    reminders?: InsertObject<DB, 'reminders'> | null | undefined;
+    welcomeTitle?: string;
+    welcomeMessage?: string;
   }) {
-    this.dbService.transaction().execute(async (trx) => {
-      const { admin_id, banner, banned_at } = await trx
+    return this.dbService.transaction().execute(async (trx) => {
+      let newReminderId: number | null = null;
+      const { admin_id, banner, banned_at, reminder_id } = await trx
         .selectFrom('groups')
         .innerJoin('contents', 'contents.id', 'groups.banner')
         .leftJoin('group_bans', 'group_bans.group_id', 'groups.id')
+        .leftJoin('group_rules', 'group_rules.group_id', 'groups.id')
         .where('groups.id', '=', body.groupId)
         .select([
           'groups.admin_id',
           'contents.path as banner',
           'group_bans.created_at as banned_at',
+          'groups.reminder_id',
         ])
         .groupBy(['groups.id', 'contents.id', 'group_bans.created_at'])
         .executeTakeFirstOrThrow();
+      newReminderId = reminder_id;
       if (banned_at != null) {
         throw new OperationNotAllowedError('This group has been banned');
       }
-      if (admin_id !== body.requestUser) {
+      if (admin_id !== body.requestUserId) {
         throw new OperationNotAllowedError('Only admin can make an update');
       }
       if (body.banner !== undefined) {
         this.storageService.publicBucket
           .file(banner)
           .delete({ ignoreNotFound: true });
+      }
+      await trx
+        .deleteFrom('group_rules')
+        .where('group_rules.group_id', '=', body.groupId)
+        .executeTakeFirst();
+      await trx
+        .deleteFrom('reminders')
+        .where('reminders.id', '=', reminder_id)
+        .executeTakeFirst();
+      if (body.rules != null && body.rules.length > 0) {
+        await trx
+          .insertInto('group_rules')
+          .values(
+            body.rules.map((rule) => ({ ...rule, group_id: body.groupId })),
+          )
+          .executeTakeFirst();
+      }
+      if (body.reminders != null) {
+        const { id: r_id } = await trx
+          .insertInto('reminders')
+          .values({
+            id: reminder_id ?? undefined,
+            days: body.reminders.days,
+            time: body.reminders.time,
+            value: body.reminders.value,
+          })
+          .returning('id')
+          .executeTakeFirstOrThrow();
+        newReminderId = r_id;
+      } else {
+        newReminderId = null;
       }
       await this.dbService
         .updateTable('groups')
@@ -372,6 +497,9 @@ export class GroupsService {
           description: body.description,
           banner: body.banner,
           updated_at: new Date(),
+          reminder_id: newReminderId ?? null,
+          welcome_title: body.welcomeTitle,
+          welcome_message: body.welcomeMessage,
         })
         .executeTakeFirst();
     });
@@ -389,13 +517,15 @@ export class GroupsService {
       if (banned_at != null) {
         throw new OperationNotAllowedError('Group has been banned');
       }
-      const userExists = await trx
-        .selectFrom('users')
-        .where('users.uid', '=', body.userId)
-        .select('users.username')
-        .executeTakeFirstOrThrow();
-      if (!userExists) {
-        throw new TargetNotFoundError('Unable to find the user');
+      const data = await trx
+        .selectFrom('group_member_bans')
+        .where('group_member_bans.group_id', '=', body.groupId)
+        .where('group_member_bans.user_id', '=', body.userId)
+        .executeTakeFirst();
+      if (data) {
+        throw new OperationNotAllowedError(
+          'You have been banned from the group',
+        );
       }
       const result = await trx
         .insertInto('group_members')
@@ -438,40 +568,34 @@ export class GroupsService {
     return data;
   }
 
-  async leaveGroup(body: {
-    groupId: string;
-    userId: string;
-    requestUser: string;
-  }) {
+  async leaveGroup(body: { groupId: string; requestUserId: string }) {
     return this.dbService.transaction().execute(async (trx) => {
       const { admin_id } = await trx
         .selectFrom('groups')
         .where('groups.id', '=', body.groupId)
         .select('groups.admin_id')
         .executeTakeFirstOrThrow();
-      if (admin_id === body.requestUser) {
+      if (admin_id === body.requestUserId) {
         throw new OperationNotAllowedError('Admin cannot leave the group');
       }
       await trx
         .deleteFrom('group_members')
         .where('group_id', '=', body.groupId)
-        .where((eb) =>
-          eb.and([
-            eb('user_id', '=', body.userId),
-            eb.exists(
-              eb
-                .selectFrom('groups')
-                .where('admin_id', '!=', body.userId)
-                .where('user_id', '=', body.userId),
-            ),
-          ]),
-        )
+        .where('user_id', '=', body.requestUserId)
         .returning('group_members.id')
         .executeTakeFirstOrThrow();
     });
   }
 
-  async fetchPendingInvites(groupId: string, cursor?: number) {
+  async fetchPendingInvites({
+    groupId,
+    cursor,
+    query,
+  }: {
+    groupId: string;
+    cursor?: number;
+    query?: string;
+  }) {
     const data = await this.dbService
       .selectFrom('group_invitations')
       .innerJoin('users', 'group_invitations.user_id', 'users.uid')
@@ -479,6 +603,14 @@ export class GroupsService {
       .where('group_invitations.group_id', '=', groupId)
       .orderBy('group_invitations.id desc')
       .$if(!!cursor, (eb) => eb.where('group_invitations.id', '<=', cursor!))
+      .$if(!!query, (eb) =>
+        eb.where(({ or, eb }) =>
+          or([
+            eb('name', 'like', `%${query}%`),
+            eb('username', 'like', `%{query}%`),
+          ]),
+        ),
+      )
       .limit(21)
       .select([
         'group_invitations.id',
@@ -497,28 +629,48 @@ export class GroupsService {
     return { data, cursor: newCursor ?? null };
   }
 
-  async fetchMembers(
-    groupId: string,
-    {
-      cursor,
-      moderator,
-      requests,
-      query,
-    }: {
-      query?: string;
-      cursor?: string;
-      moderator?: boolean;
-      requests?: boolean;
-    },
-  ) {
+  async fetchMembers({
+    groupId,
+    cursor,
+    moderator,
+    requests = false,
+    query,
+    bans = false,
+  }: {
+    groupId: string;
+    query?: string;
+    cursor?: string;
+    moderator?: boolean | null;
+    requests?: boolean;
+    bans: boolean;
+  }) {
     cursor = !!cursor
       ? Buffer.from(cursor!, 'base64url').toString()
       : undefined;
     const data = await this.dbService
       .selectFrom('group_members')
-      .where('group_members.group_id', '=', groupId)
       .innerJoin('users', 'group_members.user_id', 'users.uid')
       .leftJoin('contents', 'contents.id', 'users.profile')
+      .where('group_members.group_id', '=', groupId)
+      .where('accepted_at', requests ? 'is' : 'is not', null)
+      .$if(bans != null, (qb) =>
+        qb
+          .leftJoin('group_member_bans', (join) =>
+            join
+              .onRef('group_member_bans.user_id', '=', 'group_members.user_id')
+              .onRef(
+                'group_member_bans.group_id',
+                '=',
+                'group_members.group_id',
+              ),
+          )
+          .$if(bans === true, (rs) =>
+            rs.where('group_member_bans.id', 'is not', null),
+          )
+          .$if(bans === false, (rs) =>
+            rs.where('group_member_bans.id', 'is', null),
+          ),
+      )
       .$if(moderator != null, (qb) =>
         qb.where('moderator', moderator ? 'is not' : 'is', null),
       )
@@ -529,7 +681,6 @@ export class GroupsService {
           cursor!,
         ),
       )
-      .where('accepted_at', requests ? 'is' : 'is not', null)
       .$if(!!query, (qb) =>
         qb.where((eb) =>
           eb.or([
@@ -538,8 +689,6 @@ export class GroupsService {
           ]),
         ),
       )
-      .orderBy(['group_members.accepted_at asc', 'group_members.id asc'])
-      .limit(11)
       .select([
         'users.uid',
         'users.name',
@@ -552,6 +701,8 @@ export class GroupsService {
           'cursor',
         ),
       )
+      .orderBy(['group_members.accepted_at asc', 'group_members.id asc'])
+      .limit(11)
       .execute();
     const newCursor = data.length < 11 ? null : data.pop()?.cursor ?? null;
     data.forEach((member) => {
@@ -567,7 +718,7 @@ export class GroupsService {
     };
   }
 
-  async deleteGroup(groupId: string, requestUser: string) {
+  async deleteGroup(groupId: string, requestUserId: string) {
     await this.dbService
       .transaction()
       .setIsolationLevel('repeatable read')
@@ -577,7 +728,7 @@ export class GroupsService {
           .where('groups.id', '=', groupId)
           .select(['groups.admin_id'])
           .executeTakeFirstOrThrow();
-        if (admin_id !== requestUser) {
+        if (admin_id !== requestUserId) {
           throw new OperationNotAllowedError('Only admin can delete a group');
         }
         const { banner, c, p } = await trx
@@ -595,27 +746,26 @@ export class GroupsService {
             fn.count<string>('corporate_prayers.id').as('c'),
             fn.count<string>('prayers.id').as('p'),
           ])
-          .groupBy(['banner.path'])
+          .groupBy(['groups.id', 'banner.path'])
           .executeTakeFirstOrThrow();
         if (parseInt(c || '0') > 0 || parseInt(p || '0') > 0) {
           throw new OperationNotAllowedError(
             'groups must have no prayers and corporate prayers',
           );
         }
-        await Promise.all([
-          trx
-            .deleteFrom('groups')
-            .where('groups.id', '=', groupId)
-            .executeTakeFirstOrThrow(),
-          trx
-            .deleteFrom('group_members')
-            .where('group_members.group_id', '=', groupId)
-            .execute(),
-          trx
-            .deleteFrom('notification_group_settings')
-            .where('notification_group_settings.group_id', '=', groupId)
-            .execute(),
-        ]);
+        trx
+          .deleteFrom('notification_group_settings')
+          .where('notification_group_settings.group_id', '=', groupId)
+          .execute();
+        trx
+          .deleteFrom('group_members')
+          .where('group_members.group_id', '=', groupId)
+          .execute();
+        trx
+          .deleteFrom('groups')
+          .where('groups.id', '=', groupId)
+          .executeTakeFirstOrThrow();
+
         this.storageService.publicBucket
           .file(banner)
           .delete({ ignoreNotFound: true });
@@ -635,29 +785,29 @@ export class GroupsService {
   async handleRequest({
     groupId,
     userId,
-    requestUser,
+    requestUserId,
   }: {
     groupId: string;
     userId: string;
-    requestUser: string;
+    requestUserId: string;
   }) {
     return await this.dbService.transaction().execute(async (trx) => {
       const { moderator, banned_at } = await trx
         .selectFrom('group_members')
         .leftJoin('group_bans', 'group_bans.group_id', 'group_members.group_id')
-        .where('group_members.user_id', '=', requestUser)
+        .where('group_members.group_id', '=', groupId)
+        .where('group_members.user_id', '=', requestUserId)
         .select([
           'group_members.moderator',
           'group_bans.created_at as banned_at',
         ])
-        .groupBy(['group_bans.id', 'group_members.id'])
         .executeTakeFirstOrThrow();
       if (!moderator) {
         throw new OperationNotAllowedError(
           'Only moderators are able to accept the requests',
         );
       }
-      if (banned_at != null) {
+      if (!!banned_at) {
         throw new OperationNotAllowedError('Group has been banned');
       }
       return trx
@@ -673,12 +823,12 @@ export class GroupsService {
     groupId,
     userId,
     value,
-    requestUser,
+    requestUserId,
   }: {
     groupId: string;
     userId: string;
     value?: boolean;
-    requestUser: string;
+    requestUserId: string;
   }) {
     return await this.dbService.transaction().execute(async (trx) => {
       const { admin_id, banned_at } = await trx
@@ -686,12 +836,11 @@ export class GroupsService {
         .leftJoin('group_bans', 'group_bans.group_id', 'groups.id')
         .where('groups.id', '=', groupId)
         .select(['groups.admin_id', 'group_bans.created_at as banned_at'])
-        .groupBy(['group_bans.id', 'groups.id'])
         .executeTakeFirstOrThrow();
-      if (banned_at != null) {
+      if (!!banned_at) {
         throw new OperationNotAllowedError('Group has been banned');
       }
-      if (requestUser !== admin_id) {
+      if (requestUserId !== admin_id) {
         throw new OperationNotAllowedError(
           'Only admin can promote user to moderator',
         );
@@ -710,29 +859,140 @@ export class GroupsService {
     });
   }
 
-  async inviteUser({
+  async handleBan({
     groupId,
-    userIds,
+    userId,
     value,
-    requestUser,
+    requestUserId,
   }: {
     groupId: string;
-    userIds: string[];
-    value: boolean;
-    requestUser: string;
+    userId: string;
+    value?: boolean;
+    requestUserId: string;
   }) {
-    return this.dbService.transaction().execute(async (trx) => {
-      const { moderator, banned_at } = await trx
+    return await this.dbService.transaction().execute(async (trx) => {
+      const { moderator, banned_at, target_moderator } = await trx
         .selectFrom('group_members')
         .leftJoin('group_bans', 'group_bans.group_id', 'group_members.group_id')
-        .groupBy(['group_bans.id', 'group_members.id'])
-        .where('group_members.user_id', '=', requestUser)
+        .where('group_members.group_id', '=', groupId)
+        .where('group_members.user_id', '=', requestUserId)
+        .innerJoin('group_members as target_group_members', (join) =>
+          join
+            .onRef(
+              'target_group_members.group_id',
+              '=',
+              'group_members.group_id',
+            )
+            .on('target_group_members.user_id', '=', userId),
+        )
         .select([
+          'group_members.moderator',
+          'group_bans.created_at as banned_at',
+          'target_group_members.moderator as target_moderator',
+        ])
+        .executeTakeFirstOrThrow();
+      if (!moderator) {
+        throw new OperationNotAllowedError(
+          'Only moderators are able to ban the members',
+        );
+      }
+      if (target_moderator) {
+        throw new OperationNotAllowedError('Moderator cannot be banned');
+      }
+      if (banned_at) {
+        throw new OperationNotAllowedError('Group has been banned');
+      }
+      if (value) {
+        return trx
+          .insertInto('group_member_bans')
+          .values({ group_id: groupId, user_id: userId })
+          .executeTakeFirstOrThrow();
+      }
+      return trx
+        .deleteFrom('group_member_bans')
+        .where('group_id', '=', groupId)
+        .where('user_id', '=', userId)
+        .executeTakeFirstOrThrow();
+    });
+  }
+
+  async handleKick({
+    groupId,
+    userId,
+    requestUserId,
+  }: {
+    groupId: string;
+    userId: string;
+    requestUserId: string;
+  }) {
+    return await this.dbService.transaction().execute(async (trx) => {
+      if (userId === requestUserId) {
+        throw new OperationNotAllowedError('You cannot kick yourself');
+      }
+      const { moderator, banned_at, admin_id, targetModerator } = await trx
+        .selectFrom('groups')
+        .innerJoin('group_members', (join) =>
+          join
+            .on('group_members.user_id', '=', requestUserId)
+            .onRef('group_members.group_id', '=', 'groups.id'),
+        )
+        .innerJoin('group_members as target', (join) =>
+          join
+            .on('target.user_id', '=', userId)
+            .onRef('target.group_id', '=', 'groups.id'),
+        )
+        .leftJoin('group_bans', 'group_bans.group_id', 'groups.id')
+        .where('groups.id', '=', groupId)
+        .select([
+          'target.moderator as targetModerator',
+          'groups.admin_id',
           'group_members.moderator',
           'group_bans.created_at as banned_at',
         ])
         .executeTakeFirstOrThrow();
       if (banned_at != null) {
+        throw new OperationNotAllowedError('Group has been banned');
+      }
+      if (moderator == null) {
+        throw new OperationNotAllowedError('Only moderator can kick a user');
+      }
+      if (targetModerator != null) {
+        throw new OperationNotAllowedError('You cannot kick a moderator');
+      }
+      if (userId === admin_id) {
+        throw new OperationNotAllowedError('You cannot kick admin');
+      }
+      return this.dbService
+        .deleteFrom('group_members')
+        .where('group_id', '=', groupId)
+        .where('user_id', '=', userId)
+        .executeTakeFirstOrThrow();
+    });
+  }
+
+  async inviteUser({
+    groupId,
+    userIds,
+    value,
+    requestUserId,
+  }: {
+    groupId: string;
+    userIds: string[];
+    value: boolean;
+    requestUserId: string;
+  }) {
+    return this.dbService.transaction().execute(async (trx) => {
+      const { moderator, banned_at } = await trx
+        .selectFrom('group_members')
+        .leftJoin('group_bans', 'group_bans.group_id', 'group_members.group_id')
+        .where('group_members.group_id', '=', groupId)
+        .where('group_members.user_id', '=', requestUserId)
+        .select([
+          'group_members.moderator',
+          'group_bans.created_at as banned_at',
+        ])
+        .executeTakeFirstOrThrow();
+      if (!!banned_at) {
         throw new OperationNotAllowedError('Group has been banned');
       }
       if (!moderator) {
