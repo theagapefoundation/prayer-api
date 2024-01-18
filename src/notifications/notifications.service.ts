@@ -417,4 +417,33 @@ export class NotificationsService {
       });
     }
   }
+
+  async cleanupNotification({
+    userId,
+    groupId,
+    prayId,
+    prayerId,
+    corporateId,
+  }: {
+    userId?: string;
+    groupId?: string;
+    prayId?: number;
+    prayerId?: string;
+    corporateId?: string;
+  }) {
+    this.dbService
+      .deleteFrom('notifications')
+      .$if(!!userId, (qb) =>
+        qb.where('notifications.target_user_id', '=', userId!),
+      )
+      .$if(!!groupId, (qb) => qb.where('notifications.group_id', '=', groupId!))
+      .$if(!!prayId, (qb) => qb.where('notifications.pray_id', '=', prayId!))
+      .$if(!!prayerId, (qb) =>
+        qb.where('notifications.prayer_id', '=', prayerId!),
+      )
+      .$if(!!corporateId, (qb) =>
+        qb.where('notifications.corporate_id', '=', corporateId!),
+      )
+      .executeTakeFirst();
+  }
 }
