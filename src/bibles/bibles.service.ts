@@ -9,7 +9,7 @@ export class BiblesService {
     const data = await this.dbService
       .selectFrom('bible_translations')
       .$if(!!params?.lang, (eb) => eb.where('lang', '=', params!.lang!))
-      .$if(!!params?.cursor, (eb) => eb.where('id', '>', params!.cursor!))
+      .$if(!!params?.cursor, (eb) => eb.where('id', '>=', params!.cursor!))
       .orderBy('id asc')
       .limit(11)
       .selectAll()
