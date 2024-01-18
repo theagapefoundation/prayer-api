@@ -4,32 +4,16 @@ import { KyselyService } from 'src/kysely/kysely.service';
 import { jsonObjectFrom } from 'kysely/helpers/postgres';
 import { StorageService } from 'src/storage/storage.service';
 import { DB } from 'prisma/generated/types';
+import { OperationNotAllowedError } from 'src/errors/common.error';
+import { RemindersService } from 'src/reminders/reminders.service';
 
 @Injectable()
 export class PrayersService {
   constructor(
     private dbService: KyselyService,
     private storageService: StorageService,
+    private remindersService: RemindersService,
   ) {}
-
-  minutesToString(minutes: number) {
-    // Determine the sign
-    const sign = minutes >= 0 ? '+' : '-';
-
-    // Absolute value to handle negative minutes
-    const absMinutes = Math.abs(minutes);
-
-    // Calculate hours and minutes
-    const hours = Math.floor(absMinutes / 60);
-    const mins = absMinutes % 60;
-
-    // Format hours and minutes with leading zeros if necessary
-    const formattedHours = hours.toString().padStart(2, '0');
-    const formattedMinutes = mins.toString().padStart(2, '0');
-
-    // Return the formatted string
-    return `${sign}${formattedHours}:${formattedMinutes}`;
-  }
 
   async fetchCorporatePrayer(prayerId: string) {
     const data = await this.dbService
@@ -113,6 +97,11 @@ export class PrayersService {
       .innerJoin('users', 'prayers.user_id', 'users.uid')
       .leftJoin('contents as profile', 'profile.id', 'users.profile')
       .leftJoin('groups', 'prayers.group_id', 'groups.id')
+      .leftJoin('group_pinned_prayers', (join) =>
+        join
+          .onRef('group_pinned_prayers.group_id', '=', 'prayers.group_id')
+          .onRef('group_pinned_prayers.prayer_id', '=', 'prayers.id'),
+      )
       .leftJoin(
         'corporate_prayers',
         'prayers.corporate_id',
@@ -135,6 +124,7 @@ export class PrayersService {
         'prayers.id',
         'users.uid',
         'groups.id',
+        'group_pinned_prayers.id',
         'corporate_prayers.id',
         'profile.path',
       ])
@@ -158,6 +148,7 @@ export class PrayersService {
       )
       .selectAll(['prayers'])
       .select(({ fn }) => [
+        'group_pinned_prayers.user_id as pinned_by',
         fn
           .coalesce(
             fn.count<string>(sql`DISTINCT(prayer_prays.id)`),
@@ -331,27 +322,44 @@ export class PrayersService {
   async fetchPrayers({
     groupId,
     userId,
-    requestUser,
+    requestUserId,
     cursor,
     corporateId,
     hideAnonymous,
   }: {
     groupId?: string;
-    requestUser?: string;
+    requestUserId?: string;
     userId?: string;
     corporateId?: string;
     cursor?: string;
     hideAnonymous?: boolean;
   }) {
+    const innerCursor = sql<string>`
+      CONCAT(
+        CASE
+          WHEN group_pinned_prayers.user_id IS NOT NULL THEN
+            '1'
+          ELSE
+            '0'
+        END,
+        LPAD(EXTRACT(EPOCH FROM prayers.created_at)::text, 20, '0'), 
+        prayers.id
+      )
+    `;
     const data = await this.dbService
       .selectFrom('prayers')
+      .leftJoin('group_pinned_prayers', (join) =>
+        join
+          .onRef('group_pinned_prayers.group_id', '=', 'prayers.group_id')
+          .onRef('group_pinned_prayers.prayer_id', '=', 'prayers.id'),
+      )
       .$if(!!groupId, (eb) => eb.where('prayers.group_id', '=', groupId!))
       .$if(!!userId, (eb) => eb.where('prayers.user_id', '=', userId!))
       .$if(!!corporateId, (eb) =>
         eb.where('prayers.corporate_id', '=', corporateId!),
       )
       .$if(!!hideAnonymous, (eb) => eb.where('prayers.anon', '=', false))
-      .$if(requestUser == null, (eb) =>
+      .$if(requestUserId == null, (eb) =>
         eb.where((qb) =>
           qb.exists(
             qb
@@ -361,12 +369,12 @@ export class PrayersService {
           ),
         ),
       )
-      .$if(!!requestUser, (qb) =>
+      .$if(!!requestUserId, (qb) =>
         qb
           .leftJoin('user_blocks', (join) =>
             join
               .onRef('user_blocks.user_id', '=', 'prayers.user_id')
-              .on('user_blocks.target_id', '=', requestUser!),
+              .on('user_blocks.target_id', '=', requestUserId!),
           )
           .where(({ eb, or, exists, and }) =>
             and([
@@ -383,27 +391,17 @@ export class PrayersService {
                   eb
                     .selectFrom('group_members')
                     .whereRef('group_members.group_id', '=', 'prayers.group_id')
-                    .where('group_members.user_id', '=', requestUser!)
+                    .where('group_members.user_id', '=', requestUserId!)
                     .where('group_members.accepted_at', 'is not', null),
                 ),
               ]),
             ]),
           ),
       )
-      .$if(!!cursor, (eb) =>
-        eb.where(
-          sql<string>`CONCAT(LPAD(EXTRACT(EPOCH FROM prayers.created_at)::text, 20, '0'), prayers.id)`,
-          '<=',
-          cursor!,
-        ),
-      )
-      .orderBy('prayers.created_at desc')
+      .orderBy(sql`${innerCursor} desc`)
+      .$if(!!cursor, (eb) => eb.where(innerCursor, '<=', cursor!))
       .select(['prayers.id'])
-      .select(
-        sql<string>`CONCAT(LPAD(EXTRACT(EPOCH FROM prayers.created_at)::text, 20, '0'), prayers.id)`.as(
-          'cursor',
-        ),
-      )
+      .select(innerCursor.as('cursor'))
       .limit(11)
       .execute();
     const newCursor = data.length < 11 ? null : data.pop()?.cursor ?? null;
@@ -413,11 +411,11 @@ export class PrayersService {
   async fetchPrayersPrayedByUser({
     userId,
     cursor,
-    requestUser,
+    requestUserId,
   }: {
     userId: string;
     cursor?: string;
-    requestUser?: string;
+    requestUserId?: string;
   }) {
     const data = await this.dbService
       .selectFrom('prayers')
@@ -435,7 +433,7 @@ export class PrayersService {
           'cursor',
         ),
       )
-      .$if(!requestUser, (qb) =>
+      .$if(!requestUserId, (qb) =>
         qb.where(({ or, eb }) =>
           or([
             eb('prayers.group_id', 'is', null),
@@ -443,16 +441,16 @@ export class PrayersService {
           ]),
         ),
       )
-      .$if(!!requestUser, (qb) =>
+      .$if(!!requestUserId, (qb) =>
         qb
           .leftJoin('user_blocks', (join) =>
             join
-              .on('user_blocks.target_id', '=', requestUser!)
+              .on('user_blocks.target_id', '=', requestUserId!)
               .onRef('user_blocks.user_id', '=', 'prayers.user_id'),
           )
           .where('user_blocks.id', 'is', null),
       )
-      .$if(!!requestUser, (qb) =>
+      .$if(!!requestUserId, (qb) =>
         qb.where(({ or, eb, exists }) =>
           or([
             eb('prayers.group_id', 'is', null),
@@ -461,7 +459,7 @@ export class PrayersService {
               eb
                 .selectNoFrom('group_members.id')
                 .where('group_members.accepted_at', 'is not', null)
-                .where('group_members.user_id', '=', requestUser!),
+                .where('group_members.user_id', '=', requestUserId!),
             ),
           ]),
         ),
@@ -481,11 +479,11 @@ export class PrayersService {
 
   async fetchPrayerPrays({
     prayerId,
-    requestUser,
+    requestUserId,
     cursor,
   }: {
     prayerId: string;
-    requestUser?: string;
+    requestUserId?: string;
     cursor?: number;
   }) {
     const data = await this.dbService
@@ -494,11 +492,11 @@ export class PrayersService {
       .innerJoin('users', 'users.uid', 'prayer_prays.user_id')
       .leftJoin('contents as profile', 'profile.id', 'users.profile')
       .$if(!!cursor, (eb) => eb.where('prayer_prays.id', '<=', cursor!))
-      .$if(!!requestUser, (qb) =>
+      .$if(!!requestUserId, (qb) =>
         qb
           .leftJoin('user_blocks', (join) =>
             join
-              .on('user_blocks.target_id', '=', requestUser!)
+              .on('user_blocks.target_id', '=', requestUserId!)
               .onRef('user_blocks.user_id', '=', 'prayer_prays.user_id'),
           )
           .where('user_blocks.id', 'is', null),
@@ -577,16 +575,16 @@ export class PrayersService {
 
   async fetchGroupCorporatePrayers({
     groupId,
-    requestUser,
+    requestUserId,
     cursor,
     timezone = 0,
   }: {
     groupId: string;
-    requestUser?: string;
+    requestUserId?: string;
     cursor?: string;
     timezone?: number;
   }) {
-    const offset = 'UTC' + this.minutesToString(-timezone);
+    const offset = 'UTC' + this.remindersService.minutesToString(-timezone);
     const sortLogic = sql<string>`
     CONCAT(
       CASE
@@ -607,11 +605,11 @@ export class PrayersService {
     const data = await this.dbService
       .selectFrom('corporate_prayers')
       .where('corporate_prayers.group_id', '=', groupId)
-      .$if(!!requestUser, (qb) =>
+      .$if(!!requestUserId, (qb) =>
         qb
           .leftJoin('user_blocks', (join) =>
             join
-              .on('user_blocks.target_id', '=', requestUser!)
+              .on('user_blocks.target_id', '=', requestUserId!)
               .onRef('user_blocks.user_id', '=', 'corporate_prayers.user_id'),
           )
           .where('user_blocks.id', 'is', null),
@@ -647,19 +645,23 @@ export class PrayersService {
             .delete({ ignoreNotFound: true }),
         ),
       );
-      await trx
+      trx
         .deleteFrom('prayer_contents')
         .where('prayer_id', '=', prayerId)
         .executeTakeFirst();
-      await trx
+      trx
+        .deleteFrom('group_pinned_prayers')
+        .where('group_pinned_prayers.prayer_id', '=', prayerId)
+        .executeTakeFirst();
+      trx
         .deleteFrom('prayer_bible_verses')
         .where('prayer_id', '=', prayerId)
         .executeTakeFirst();
-      await trx
+      trx
         .deleteFrom('prayers')
         .where('prayers.id', '=', prayerId)
         .executeTakeFirst();
-      await trx
+      trx
         .deleteFrom('prayer_prays')
         .where('prayer_prays.prayer_id', '=', prayerId)
         .executeTakeFirst();
@@ -692,6 +694,18 @@ export class PrayersService {
     verses?: number[] | null;
   }) {
     return await this.dbService.transaction().execute(async (trx) => {
+      if (group_id != null) {
+        const hasBanned = await trx
+          .selectFrom('group_member_bans')
+          .where('group_member_bans.group_id', '=', group_id as string)
+          .where('group_member_bans.user_id', '=', user_id as string)
+          .executeTakeFirst();
+        if (hasBanned != null) {
+          throw new OperationNotAllowedError(
+            'Member has been banned from the group',
+          );
+        }
+      }
       const { id } = await trx
         .insertInto('prayers')
         .values((eb) => ({
@@ -755,22 +769,40 @@ export class PrayersService {
   async createPrayerPray({
     prayerId,
     userId,
+    requestUserId,
     value,
   }: {
     prayerId: string;
     userId: string;
+    requestUserId: string;
     value?: string | null;
   }) {
-    return this.dbService
-      .insertInto('prayer_prays')
-      .values({
-        prayer_id: prayerId,
-        user_id: userId,
-        created_at: new Date(),
-        value,
-      })
-      .returning('prayer_prays.id')
-      .executeTakeFirstOrThrow();
+    return this.dbService.transaction().execute(async (trx) => {
+      const isBanned = await trx
+        .selectFrom('prayers')
+        .innerJoin('groups', 'prayers.group_id', 'groups.id')
+        .innerJoin('group_member_bans', (join) =>
+          join
+            .onRef('group_member_bans.group_id', '=', 'prayers.group_id')
+            .on('group_member_bans.user_id', '=', requestUserId),
+        )
+        .executeTakeFirst();
+      if (isBanned) {
+        throw new OperationNotAllowedError(
+          'Member has been banned from the group',
+        );
+      }
+      return trx
+        .insertInto('prayer_prays')
+        .values({
+          prayer_id: prayerId,
+          user_id: userId,
+          created_at: new Date(),
+          value,
+        })
+        .returning('prayer_prays.id')
+        .executeTakeFirstOrThrow();
+    });
   }
 
   async createCorporatePrayer({
@@ -966,5 +998,40 @@ export class PrayersService {
       .deleteFrom('prayer_prays')
       .where('prayer_prays.id', '=', prayId)
       .executeTakeFirst();
+  }
+
+  pinnedGroupPrayer(prayerId: string, requestUserId: string, value: boolean) {
+    return this.dbService.transaction().execute(async (trx) => {
+      const { moderator, group_id } = await trx
+        .selectFrom('prayers')
+        .innerJoin('groups', 'groups.id', 'prayers.group_id')
+        .innerJoin('group_members', (join) =>
+          join
+            .onRef('group_members.group_id', '=', 'prayers.group_id')
+            .on('group_members.user_id', '=', requestUserId),
+        )
+        .where('prayers.id', '=', prayerId)
+        .select(['group_members.moderator', 'groups.id as group_id'])
+        .executeTakeFirstOrThrow();
+      if (moderator == null) {
+        throw new OperationNotAllowedError('Only moderators can pin a prayer');
+      }
+      if (value) {
+        return trx
+          .insertInto('group_pinned_prayers')
+          .values({ group_id, user_id: requestUserId, prayer_id: prayerId })
+          .onConflict((oc) =>
+            oc
+              .column('group_id')
+              .doUpdateSet({ prayer_id: prayerId, user_id: requestUserId }),
+          )
+          .executeTakeFirst();
+      }
+      return trx
+        .deleteFrom('group_pinned_prayers')
+        .where('group_id', '=', group_id)
+        .where('prayer_id', '=', prayerId)
+        .executeTakeFirst();
+    });
   }
 }
