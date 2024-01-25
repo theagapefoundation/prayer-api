@@ -32,7 +32,8 @@ export class BiblesController {
       .toLowerCase()
       .replace('1 ', 'first_')
       .replace('2 ', 'second_')
-      .replace('3 ', 'third_');
+      .replace('3 ', 'third_')
+      .replace('song of songs', 'song_of_solomon');
     const data = await this.appService.fetchVerseOfTheChapter({
       translationId: translationId ?? 1,
       book: bookParam,
