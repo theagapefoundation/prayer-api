@@ -288,11 +288,13 @@ export class NotificationsService {
     groupId,
     prayerId,
     userId,
+    anon,
   }: {
     corporateId?: string;
     groupId?: string;
     prayerId: string;
     userId: string;
+    anon?: boolean;
   }) {
     let _corporateName: string | undefined = undefined;
     let _groupName: string | undefined = undefined;
@@ -394,7 +396,7 @@ export class NotificationsService {
         .values(
           _members.map((id) => ({
             user_id: id,
-            target_user_id: userId,
+            target_user_id: anon ? null : userId,
             prayer_id: prayerId,
             type: 'prayer_posted',
           })),
@@ -404,7 +406,7 @@ export class NotificationsService {
         prayerId,
         corporateId,
         groupId,
-        username: _username,
+        username: anon ? null : _username,
         groupName: _groupName,
         corporateName: _corporateName,
       };

@@ -323,6 +323,7 @@ export class PrayersController {
       groupId: form.groupId,
       userId: user.sub,
       prayerId: id,
+      anon: form.anon,
     });
     return 'success';
   }
