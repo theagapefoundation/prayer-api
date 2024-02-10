@@ -16,7 +16,7 @@ export class NotificationsService {
     const data = await this.dbService
       .selectFrom('notifications')
       .leftJoin('users as target', 'target.uid', 'notifications.target_user_id')
-      .leftJoin('contents', 'contents.id', 'target.profile')
+      .leftJoin('contents', 'contents.id', 'target.profile_id')
       .selectAll(['notifications'])
       .select((eb) =>
         eb

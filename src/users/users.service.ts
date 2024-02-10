@@ -102,7 +102,7 @@ export class UsersService {
   }) {
     const data = await this.dbService
       .selectFrom('users')
-      .leftJoin('contents as profile', 'profile.id', 'users.profile')
+      .leftJoin('contents as profile', 'profile.id', 'users.profile_id')
       .$if(!!excludeGroupId, (qb) =>
         qb
           .leftJoin('group_members', (join) =>
@@ -203,8 +203,8 @@ export class UsersService {
           ])
           .groupBy(['user_follows.id', 'my_block.id', 'target_block.id']),
       )
-      .leftJoin('contents as profile', 'profile.id', 'users.profile')
-      .leftJoin('contents as banner', 'banner.id', 'users.banner')
+      .leftJoin('contents as profile', 'profile.id', 'users.profile_id')
+      .leftJoin('contents as banner', 'banner.id', 'users.banner_id')
       .leftJoin('user_bans', 'user_bans.user_id', 'users.uid')
       .leftJoin(
         'user_follows as followers',
@@ -286,7 +286,7 @@ export class UsersService {
       .$if(!!follower, (eb) =>
         eb
           .innerJoin('users', 'users.uid', 'user_follows.following_id')
-          .leftJoin('contents as profile', 'profile.id', 'users.profile')
+          .leftJoin('contents as profile', 'profile.id', 'users.profile_id')
           .where('follower_id', '=', follower!)
           .select([
             'user_follows.id',
@@ -299,7 +299,7 @@ export class UsersService {
       .$if(!!following, (eb) =>
         eb
           .innerJoin('users', 'users.uid', 'user_follows.follower_id')
-          .leftJoin('contents as profile', 'profile.id', 'users.profile')
+          .leftJoin('contents as profile', 'profile.id', 'users.profile_id')
           .where('following_id', '=', following!)
           .select([
             'user_follows.id',
@@ -353,35 +353,35 @@ export class UsersService {
     name,
     username,
     bio,
-    profile,
-    banner,
+    profile_id,
+    banner_id,
     verse_id,
   }: Omit<UpdateObject<DB, 'users'>, 'uid'> & { uid: string }) {
     const data = await this.dbService
       .selectFrom('users')
-      .leftJoin('contents as profile', 'profile.id', 'users.profile')
-      .leftJoin('contents as banner', 'banner.id', 'users.banner')
+      .leftJoin('contents as profile', 'profile.id', 'users.profile_id')
+      .leftJoin('contents as banner', 'banner.id', 'users.banner_id')
       .where('uid', '=', uid)
       .select(['profile.path as profile', 'banner.path as banner'])
       .executeTakeFirstOrThrow();
     if (
-      [name, username, bio, profile, banner]
+      [name, username, bio, profile_id, banner_id]
         .map((v) => v === undefined)
         .every((v) => v)
     ) {
       return;
     }
     const [p, b] = await Promise.all([
-      profile &&
+      profile_id &&
         this.dbService
           .selectFrom('contents')
-          .where('contents.id', '=', profile! as number)
+          .where('contents.id', '=', profile_id! as number)
           .select(['contents.user_id'])
           .executeTakeFirstOrThrow(),
-      banner &&
+      banner_id &&
         this.dbService
           .selectFrom('contents')
-          .where('contents.id', '=', banner! as number)
+          .where('contents.id', '=', banner_id! as number)
           .select(['contents.user_id'])
           .executeTakeFirstOrThrow(),
     ]);
@@ -397,19 +397,19 @@ export class UsersService {
         name,
         username,
         bio,
-        profile,
-        banner,
+        profile_id,
+        banner_id,
         updated_at: new Date(),
         verse_id,
       })
       .executeTakeFirstOrThrow();
     Promise.all([
-      profile !== undefined &&
+      profile_id !== undefined &&
         data.profile &&
         this.storageService.publicBucket
           .file(data.profile)
           .delete({ ignoreNotFound: true }),
-      banner !== undefined &&
+      banner_id !== undefined &&
         data.banner &&
         this.storageService.publicBucket
           .file(data.banner)
@@ -438,8 +438,8 @@ export class UsersService {
             'corporate_prayers.user_id',
             'users.uid',
           )
-          .leftJoin('contents as profile', 'profile.id', 'users.profile')
-          .leftJoin('contents as banner', 'banner.id', 'users.banner')
+          .leftJoin('contents as profile', 'profile.id', 'users.profile_id')
+          .leftJoin('contents as banner', 'banner.id', 'users.banner_id')
           .leftJoin('group_members', 'group_members.user_id', 'users.uid')
           .where('users.uid', '=', userId)
           .groupBy(['profile.path', 'banner.path'])

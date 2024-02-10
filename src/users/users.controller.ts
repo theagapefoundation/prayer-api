@@ -103,8 +103,8 @@ export class UsersController {
     try {
       await this.appService.updateUser({
         ...form,
-        profile: form.profile === -1 ? null : form.profile,
-        banner: form.banner === -1 ? null : form.banner,
+        profile_id: form.profile === -1 ? null : form.profile,
+        banner_id: form.banner === -1 ? null : form.banner,
         uid: user.sub,
         verse_id: form.verseId,
       });
