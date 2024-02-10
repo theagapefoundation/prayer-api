@@ -26,10 +26,10 @@ model users {
   email      String   @unique @db.VarChar(255)
   created_at DateTime @default(now()) @db.Timestamptz(6)
   bio        String?  @db.VarChar(200)
-  profile    Int?     @db.Integer
+  profile_id Int?     @db.Integer
   name       String   @db.VarChar(30)
   updated_at DateTime @default(now()) @db.Timestamptz(6)
-  banner     Int?     @db.Integer
+  banner_id  Int?     @db.Integer
   verse_id   Int?     @db.Integer
 
   @@index([username])
@@ -78,7 +78,7 @@ model groups {
   welcome_title   String?         @db.VarChar(100)
   welcome_message String?         @db.VarChar(500)
   admin_id        String          @db.VarChar(40)
-  banner          Int             @db.Integer
+  banner_id       Int             @db.Integer
   membership_type membership_type
   reminder_id     Int?            @db.Integer
   updated_at      DateTime        @default(now()) @db.Timestamptz(6)

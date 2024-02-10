@@ -20,7 +20,7 @@ export class PrayersService {
       .selectFrom('corporate_prayers')
       .where('corporate_prayers.id', '=', prayerId)
       .innerJoin('users', 'corporate_prayers.user_id', 'users.uid')
-      .leftJoin('contents', 'contents.id', 'users.profile')
+      .leftJoin('contents', 'contents.id', 'users.profile_id')
       .leftJoin('prayers', 'corporate_prayers.id', 'prayers.corporate_id')
       .innerJoin('groups', 'corporate_prayers.group_id', 'groups.id')
       .leftJoin('reminders', 'reminders.id', 'corporate_prayers.reminder_id')
@@ -95,7 +95,7 @@ export class PrayersService {
       .selectFrom('prayers')
       .where('prayers.id', '=', prayerId)
       .innerJoin('users', 'prayers.user_id', 'users.uid')
-      .leftJoin('contents as profile', 'profile.id', 'users.profile')
+      .leftJoin('contents as profile', 'profile.id', 'users.profile_id')
       .leftJoin('groups', 'prayers.group_id', 'groups.id')
       .leftJoin('group_pinned_prayers', (join) =>
         join
@@ -173,7 +173,7 @@ export class PrayersService {
           eb
             .selectFrom('prayer_prays')
             .leftJoin('users', 'prayer_prays.user_id', 'users.uid')
-            .leftJoin('contents as profile', 'profile.id', 'users.profile')
+            .leftJoin('contents as profile', 'profile.id', 'users.profile_id')
             .select([
               'users.uid',
               'profile.path as profile',
@@ -490,7 +490,7 @@ export class PrayersService {
       .selectFrom('prayer_prays')
       .where('prayer_prays.prayer_id', '=', prayerId)
       .innerJoin('users', 'users.uid', 'prayer_prays.user_id')
-      .leftJoin('contents as profile', 'profile.id', 'users.profile')
+      .leftJoin('contents as profile', 'profile.id', 'users.profile_id')
       .$if(!!cursor, (eb) => eb.where('prayer_prays.id', '<=', cursor!))
       .$if(!!requestUserId, (qb) =>
         qb
@@ -964,14 +964,14 @@ export class PrayersService {
     const data = await this.dbService
       .selectFrom('prayer_prays')
       .innerJoin('users', 'users.uid', 'prayer_prays.user_id')
-      .leftJoin('contents', 'contents.id', 'users.profile')
+      .leftJoin('contents', 'contents.id', 'users.profile_id')
       .where('prayer_prays.id', '=', prayId)
       .selectAll(['prayer_prays'])
       .select(({ eb }) =>
         jsonObjectFrom(
           eb.selectNoFrom([
             'users.uid',
-            'users.profile',
+            'users.profile_id',
             'users.username',
             'users.name',
           ]),

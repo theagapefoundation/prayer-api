@@ -17,12 +17,12 @@ export class GroupsService {
     const data = await this.dbService
       .selectFrom('groups')
       .where('groups.id', '=', groupId)
-      .innerJoin('contents as banner', 'banner.id', 'groups.banner')
+      .innerJoin('contents as banner', 'banner.id', 'groups.banner_id')
       .innerJoin('users as admin', 'admin.uid', 'groups.admin_id')
       .leftJoin(
         'contents as admin_content',
         'admin_content.id',
-        'admin.profile',
+        'admin.profile_id',
       )
       .innerJoin('group_members as members', (join) =>
         join
@@ -170,9 +170,13 @@ export class GroupsService {
     const data = await this.dbService
       .selectFrom('group_invitations')
       .innerJoin('groups', 'group_invitations.group_id', 'groups.id')
-      .innerJoin('contents as banner', 'banner.id', 'groups.banner')
+      .innerJoin('contents as banner', 'banner.id', 'groups.banner_id')
       .innerJoin('users as admin', 'admin.uid', 'groups.admin_id')
-      .leftJoin('contents as user_content', 'user_content.id', 'admin.profile')
+      .leftJoin(
+        'contents as user_content',
+        'user_content.id',
+        'admin.profile_id',
+      )
       .innerJoin('group_members', 'group_members.group_id', 'groups.id')
       .where('group_invitations.user_id', '=', userId)
       .$if(!!cursor, (eb) => eb.where('group_invitations.id', '<=', cursor!))
@@ -244,9 +248,9 @@ export class GroupsService {
       .leftJoin(
         'contents as admin_content',
         'admin_content.id',
-        'admin.profile',
+        'admin.profile_id',
       )
-      .innerJoin('contents as banner', 'banner.id', 'groups.banner')
+      .innerJoin('contents as banner', 'banner.id', 'groups.banner_id')
       .innerJoin('group_members as group_members_count', (join) =>
         join
           .onRef('group_members_count.group_id', '=', 'groups.id')
@@ -383,7 +387,7 @@ export class GroupsService {
           admin_id: body.admin,
           description: body.description,
           membership_type: body.membershipType,
-          banner: body.banner!,
+          banner_id: body.banner!,
           reminder_id: reminderId,
           welcome_title: body.welcomeTitle,
           welcome_message: body.welcomeMessage,
@@ -434,7 +438,7 @@ export class GroupsService {
       let newReminderId: number | null = null;
       const { admin_id, banner, banned_at, reminder_id } = await trx
         .selectFrom('groups')
-        .innerJoin('contents', 'contents.id', 'groups.banner')
+        .innerJoin('contents', 'contents.id', 'groups.banner_id')
         .leftJoin('group_bans', 'group_bans.group_id', 'groups.id')
         .leftJoin('group_rules', 'group_rules.group_id', 'groups.id')
         .where('groups.id', '=', body.groupId)
@@ -495,7 +499,7 @@ export class GroupsService {
         .set({
           name: body.name,
           description: body.description,
-          banner: body.banner,
+          banner_id: body.banner,
           updated_at: new Date(),
           reminder_id: newReminderId ?? null,
           welcome_title: body.welcomeTitle,
@@ -599,7 +603,7 @@ export class GroupsService {
     const data = await this.dbService
       .selectFrom('group_invitations')
       .innerJoin('users', 'group_invitations.user_id', 'users.uid')
-      .leftJoin('contents', 'contents.id', 'users.profile')
+      .leftJoin('contents', 'contents.id', 'users.profile_id')
       .where('group_invitations.group_id', '=', groupId)
       .orderBy('group_invitations.id desc')
       .$if(!!cursor, (eb) => eb.where('group_invitations.id', '<=', cursor!))
@@ -650,7 +654,7 @@ export class GroupsService {
     const data = await this.dbService
       .selectFrom('group_members')
       .innerJoin('users', 'group_members.user_id', 'users.uid')
-      .leftJoin('contents', 'contents.id', 'users.profile')
+      .leftJoin('contents', 'contents.id', 'users.profile_id')
       .where('group_members.group_id', '=', groupId)
       .where('accepted_at', requests ? 'is' : 'is not', null)
       .$if(bans != null, (qb) =>
@@ -734,7 +738,7 @@ export class GroupsService {
         const { banner, c, p } = await trx
           .selectFrom('groups')
           .where('groups.id', '=', groupId)
-          .innerJoin('contents as banner', 'banner.id', 'groups.banner')
+          .innerJoin('contents as banner', 'banner.id', 'groups.banner_id')
           .leftJoin(
             'corporate_prayers',
             'corporate_prayers.group_id',
