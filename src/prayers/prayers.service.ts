@@ -543,6 +543,7 @@ export class PrayersService {
           eb
             .selectFrom('group_members')
             .where('group_members.user_id', '=', userId!)
+            .where('group_members.accepted_at', 'is not', null)
             .distinct()
             .select('group_members.group_id'),
         ),
